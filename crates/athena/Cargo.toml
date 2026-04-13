@@ -1,0 +1,32 @@
+[package]
+name = "athena"
+version.workspace = true
+edition.workspace = true
+description = "Graphical EDA IDE for Aegis FPGAs"
+
+[[bin]]
+name = "athena"
+path = "src/main.rs"
+
+[features]
+default = []
+dart = []
+cosmic = ["dep:ron", "dep:palette"]
+
+[dependencies]
+aegis-ip = { path = "../aegis-ip" }
+aegis-pack = { path = "../aegis-pack" }
+aegis-sim = { path = "../aegis-sim" }
+clap = { workspace = true }
+iced = { workspace = true }
+iced-code-editor = "0.3"
+iced_aw = { version = "0.13", features = ["menu"] }
+dark-light = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+dirs = "6"
+rust-i18n = { workspace = true }
+toml = "0.8"
+rfd = "0.15"
+ron = { version = "0.12", optional = true }
+palette = { version = "0.7", features = ["serializing"], optional = true }

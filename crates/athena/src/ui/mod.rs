@@ -1,0 +1,10 @@
+pub mod about;
+pub mod console;
+pub mod content;
+pub mod data_pack_view;
+pub mod home;
+pub mod menu_bar;
+pub mod new_project;
+pub mod settings;
+pub mod sidebar;
+pub mod status_bar;

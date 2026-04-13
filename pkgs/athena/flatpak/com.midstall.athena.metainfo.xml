@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.midstall.athena</id>
+  <name>Athena</name>
+  <summary>Graphical EDA IDE for Aegis FPGAs</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>Apache-2.0</project_license>
+  <description>
+    <p>
+      Athena is a graphical electronic design automation (EDA) IDE for designing
+      on Aegis FPGAs. It provides synthesis, place-and-route, simulation, and
+      floorplan visualization in a single integrated environment.
+    </p>
+  </description>
+  <url type="homepage">https://github.com/Midstall/aegis</url>
+  <url type="bugtracker">https://github.com/Midstall/aegis/issues</url>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.1.0" date="2026-04-12">
+      <description>
+        <p>Initial release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

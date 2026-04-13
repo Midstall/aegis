@@ -30,6 +30,7 @@ jobs:
           matrix=$(echo "$flake_json" | jq -c '[.inventory.packages.output.children
             | to_entries[]
             | .key as $sys
+            | select($sys | endswith("-linux"))
             | .value.children
             | keys[]
             | select(endswith("-docker"))
@@ -38,6 +39,7 @@ jobs:
           manifests=$(echo "$flake_json" | jq -c '[.inventory.packages.output.children
             | to_entries[]
             | .key as $sys
+            | select($sys | endswith("-linux"))
             | .value.children
             | keys[]
             | select(endswith("-docker"))
