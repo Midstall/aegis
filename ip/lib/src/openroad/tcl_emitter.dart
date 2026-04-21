@@ -624,23 +624,43 @@ class OpenroadTclEmitter {
   void _writeRouting(StringBuffer buf) {
     buf.writeln(_section('Routing'));
 
-    // Use upper metal layers for top-level routing
-    // Metal1-Metal2 may be used internally by tile macros
-    // Auto-detect the highest available routing layer
+    // Use Metal2+ for top-level routing. Metal1 is used internally
+    // by standard cells and causes PDK-inherent M1.2a violations.
+    buf.writeln('set all_route_layers [get_routing_layers]');
+    buf.writeln('set bot_route ""');
     buf.writeln('set top_route ""');
-    buf.writeln('foreach layer [lreverse [get_routing_layers]] {');
+    buf.writeln('foreach layer \$all_route_layers {');
     buf.writeln(
       '    if {![catch {set tl '
       '[[[ord::get_db] getTech] findLayer \$layer]}]} {',
     );
-    buf.writeln('        if {\$tl ne "NULL" && \$top_route eq ""} {');
+    buf.writeln('        if {\$tl ne "NULL"} {');
+    buf.writeln('            if {\$bot_route eq ""} {');
+    buf.writeln(
+      '                # Skip Metal1: use second routing layer as bottom',
+    );
+    buf.writeln('            } elseif {\$bot_route eq "SKIP"} {');
+    buf.writeln('                set bot_route \$layer');
+    buf.writeln('            }');
+    buf.writeln('            if {\$bot_route eq ""} { set bot_route "SKIP" }');
     buf.writeln('            set top_route \$layer');
     buf.writeln('        }');
     buf.writeln('    }');
     buf.writeln('}');
+    buf.writeln(
+      'if {\$bot_route eq "" || \$bot_route eq "SKIP"} { set bot_route Metal2 }',
+    );
     buf.writeln('if {\$top_route eq ""} { set top_route Metal2 }');
-    buf.writeln('puts "Routing layers: Metal1-\$top_route"');
-    buf.writeln('set_routing_layers -signal Metal1-\$top_route');
+    buf.writeln('puts "Routing layers: \$bot_route-\$top_route"');
+    buf.writeln('set_routing_layers -signal \$bot_route-\$top_route');
+    buf.writeln('# Apply per-layer routing capacity adjustments');
+    buf.writeln('if {[array exists LAYER_ADJ]} {');
+    buf.writeln('    foreach layer [array names LAYER_ADJ] {');
+    buf.writeln(
+      '        set_global_routing_layer_adjustment \$layer \$LAYER_ADJ(\$layer)',
+    );
+    buf.writeln('    }');
+    buf.writeln('}');
     buf.writeln('global_route -allow_congestion');
     buf.writeln();
     buf.writeln('# Save global-routed DEF (guaranteed output)');
@@ -651,9 +671,22 @@ class OpenroadTclEmitter {
     );
     buf.writeln('# If it fails, we still have the global-routed DEF.');
     buf.writeln(
-      'if {![info exists DROUTE_END_ITER]} { set DROUTE_END_ITER 8 }',
+      'if {![info exists DROUTE_END_ITER]} { set DROUTE_END_ITER 32 }',
     );
-    buf.writeln('detailed_route -droute_end_iter \$DROUTE_END_ITER');
+    buf.writeln(
+      'detailed_route -droute_end_iter \$DROUTE_END_ITER '
+      '-or_seed 42 -or_k 3 '
+      '-output_drc \${DEVICE_NAME}_drc.rpt',
+    );
+    buf.writeln();
+
+    buf.writeln();
+  }
+
+  void _writeDensityFill(StringBuffer buf) {
+    buf.writeln(_section('Density fill'));
+
+    buf.writeln(r'density_fill -rules $FILL_CONFIG');
     buf.writeln();
   }
 
@@ -675,8 +708,11 @@ class OpenroadTclEmitter {
   }
 
   void _writeLayerDetection(StringBuffer buf) {
+    // Detect pin layers, skipping Metal1 which is reserved for
+    // internal macro/standard cell routing.
     buf.writeln('set hor_layer ""');
     buf.writeln('set ver_layer ""');
+    buf.writeln('set skip_first_hor 1');
     buf.writeln('foreach layer [get_routing_layers] {');
     buf.writeln(
       '    if {![catch {set tl '
@@ -684,8 +720,11 @@ class OpenroadTclEmitter {
     );
     buf.writeln('        if {\$tl ne "NULL"} {');
     buf.writeln('            set dir [\$tl getDirection]');
+    buf.writeln('            if {\$dir eq "HORIZONTAL" && \$skip_first_hor} {');
+    buf.writeln('                # Skip Metal1 (first horizontal layer)');
+    buf.writeln('                set skip_first_hor 0');
     buf.writeln(
-      '            if {\$dir eq "HORIZONTAL" && \$hor_layer eq ""} {',
+      '            } elseif {\$dir eq "HORIZONTAL" && \$hor_layer eq ""} {',
     );
     buf.writeln('                set hor_layer \$layer');
     buf.writeln('            }');
@@ -695,8 +734,9 @@ class OpenroadTclEmitter {
     buf.writeln('        }');
     buf.writeln('    }');
     buf.writeln('}');
-    buf.writeln('if {\$hor_layer eq ""} { set hor_layer Metal1 }');
+    buf.writeln('if {\$hor_layer eq ""} { set hor_layer Metal3 }');
     buf.writeln('if {\$ver_layer eq ""} { set ver_layer Metal2 }');
+    buf.writeln('puts "Pin layers: hor=\$hor_layer ver=\$ver_layer"');
   }
 
   String _section(String title) =>

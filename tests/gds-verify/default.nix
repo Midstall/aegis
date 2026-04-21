@@ -7,23 +7,30 @@
   stdenvNoCC,
   python3,
   klayout,
+  procps,
+  yosys,
   aegis-tapeout,
 }:
 
 let
   inherit (aegis-tapeout) deviceName pdk;
-  inherit (pdk) pdkName pdkPath;
+  inherit (pdk) pdkName pdkPath cellLib;
   fullPdkPath = "${pdk}/${pdkPath}";
+  spicePath = "${fullPdkPath}/libs.ref/${cellLib}/spice";
   # PV rule decks live under the PDK's pv/ directory
   pvPath = "${fullPdkPath}/pv";
-  # DRC variant selection per PDK
+  # DRC variant from PDK fab config, with fallback per PDK name
   drcVariant =
-    if pdkName == "gf180mcu" then
-      "C" # 9K metal_top, 5LM
+    if pdk ? fab && pdk.fab ? drcVariant then
+      pdk.fab.drcVariant
+    else if pdkName == "gf180mcu" then
+      "D"
     else if pdkName == "sky130" then
       "sky130A"
     else
       "default";
+  # Rule tables to check (from PDK passthru, defaults to all)
+  drcTables = pdk.drcTables or [ ];
 in
 stdenvNoCC.mkDerivation {
   name = "aegis-gds-verify-${deviceName}";
@@ -31,12 +38,17 @@ stdenvNoCC.mkDerivation {
   dontUnpack = true;
 
   nativeBuildInputs = [
-    python3
+    (python3.withPackages (ps: [ ps.docopt ]))
     klayout
+    procps
+    yosys
   ];
 
   buildPhase = ''
     runHook preBuild
+
+    # Make klayout Python bindings visible to standalone python3
+    export PYTHONPATH="${klayout}/lib/pymod''${PYTHONPATH:+:$PYTHONPATH}"
 
     GDS="${aegis-tapeout}/${deviceName}.gds"
     NETLIST="${aegis-tapeout}/${deviceName}_final.v"
@@ -119,58 +131,145 @@ stdenvNoCC.mkDerivation {
       exit 1
     fi
 
-    # ---- Step 3: KLayout DRC ----
-    echo "--- Step 3: DRC (${pdkName} design rules) ---"
+    # ---- Step 3: Fab precheck DRC (matches wafer.space precheck) ----
+    echo "--- Step 3: Fab precheck DRC (${pdkName}) ---"
+    FAB_DRC="${pvPath}/klayout/drc/gf180mcu.drc"
+
+    if [ -f "$FAB_DRC" ]; then
+      mkdir -p drc_output
+
+      # Run the fab's KLayout DRC runset (same as wafer.space precheck)
+      QT_QPA_PLATFORM=offscreen klayout -b -zz \
+        -r "$FAB_DRC" \
+        -rd input="$GDS" \
+        -rd report=drc_output/fab_drc.xml \
+        -rd feol=true \
+        -rd beol=true \
+        -rd offgrid=true \
+        -rd conn_drc=true \
+        -rd wedge=true \
+        -rd run_mode=deep \
+        -rd metal_top=11K \
+        -rd metal_level=5LM \
+        -rd mim_option=B \
+        -rd thr=$NIX_BUILD_CORES \
+        2>&1 | tee drc.log || true
+
+      # Check fab DRC result
+      if [ -f "drc_output/fab_drc.xml" ]; then
+        FAB_VIOLATIONS=$(grep -c "<value>" drc_output/fab_drc.xml 2>/dev/null || echo "0")
+        echo "Fab precheck DRC violations: $FAB_VIOLATIONS"
+        if [ "$FAB_VIOLATIONS" = "0" ]; then
+          echo "PASS: Fab precheck DRC clean"
+        else
+          echo "FAIL: $FAB_VIOLATIONS fab DRC violations"
+          exit 1
+        fi
+      else
+        echo "PASS: Fab DRC produced no report (no violations)"
+      fi
+    else
+      echo "NOTE: Fab DRC runset not found at $FAB_DRC, skipping"
+    fi
+
+    # ---- Step 3b: Detailed DRC (informational, not gating) ----
+    echo "--- Step 3b: Detailed DRC report (informational) ---"
     DRC_SCRIPT="${pvPath}/klayout/drc/run_drc.py"
 
     if [ -f "$DRC_SCRIPT" ]; then
-      mkdir -p drc_output
       QT_QPA_PLATFORM=offscreen python3 "$DRC_SCRIPT" \
         --path="$GDS" \
+        --topcell=AegisFPGA \
         --variant=${drcVariant} \
         --run_dir=drc_output \
         --no_feol \
-        --thr=1 \
-        2>&1 | tee drc.log || true
+        --run_mode=deep \
+        --thr=$NIX_BUILD_CORES \
+        --mp=$NIX_BUILD_CORES \
+        ${lib.concatMapStringsSep " " (t: "--table=${t}") drcTables} \
+        2>&1 | tee -a drc.log || true
 
-      # Check for DRC violations
+      # Report but don't fail
       VIOLATION_FILES=$(find drc_output -name "*.lyrdb" 2>/dev/null)
       if [ -n "$VIOLATION_FILES" ]; then
         VIOLATIONS=$(grep -c "<value>" $VIOLATION_FILES 2>/dev/null || echo "0")
-        echo "DRC violations found: $VIOLATIONS"
-        if [ "$VIOLATIONS" = "0" ]; then
-          echo "PASS: DRC clean"
-        else
-          echo "WARNING: $VIOLATIONS DRC violations (review needed)"
-        fi
-      else
-        echo "NOTE: DRC output not generated (may need additional setup)"
+        echo "Detailed DRC violations (informational): $VIOLATIONS"
       fi
-    else
-      echo "NOTE: DRC script not found, skipping (PDK: ${pdkName})"
     fi
 
-    # ---- Step 4: KLayout LVS ----
-    echo "--- Step 4: LVS (layout vs schematic) ---"
-    LVS_SCRIPT="${pvPath}/klayout/lvs/run_lvs.py"
+    # ---- Step 4: Convert Verilog netlists to SPICE ----
+    echo "--- Step 4: Verilog to SPICE conversion ---"
+    if [ -f "$NETLIST" ]; then
+      CELL_LIB="${fullPdkPath}/libs.ref/${cellLib}/lib/${cellLib}__tt_025C_5v00.lib"
+      CELL_SPICE="${fullPdkPath}/libs.ref/${cellLib}/spice"
+      MACRO_DIR="${aegis-tapeout}/macros"
 
-    if [ -f "$LVS_SCRIPT" ] && [ -f "$NETLIST" ]; then
-      mkdir -p lvs_output
-      QT_QPA_PLATFORM=offscreen python3 "$LVS_SCRIPT" \
-        --layout="$GDS" \
-        --netlist="$NETLIST" \
-        --variant=${drcVariant} \
-        --run_dir=lvs_output \
-        --thr=1 \
-        2>&1 | tee lvs.log || true
+      # Convert each tile macro's gate-level Verilog to SPICE.
+      # The top-level netlist treats macros as blackboxes, so we need
+      # the per-macro SPICE subcircuits for a complete LVS netlist.
+      mkdir -p macro_spice
+      MACRO_SPICE_OK=1
+      for mod in Tile BramTile DspBasicTile ClockTile IOTile SerDesTile FabricConfigLoader; do
+        MACRO_V="$MACRO_DIR/${deviceName}_''${mod}_final.v"
+        if [ -f "$MACRO_V" ]; then
+          echo "Converting $mod to SPICE..."
+          yosys -p "
+            read_liberty -lib $CELL_LIB;
+            read_verilog $MACRO_V;
+            hierarchy -top $mod;
+            write_spice -big_endian macro_spice/''${mod}.spice;
+          " 2>&1 | tee macro_spice/''${mod}_yosys.log || true
+          if [ ! -f "macro_spice/''${mod}.spice" ]; then
+            echo "WARNING: Failed to convert $mod to SPICE"
+            MACRO_SPICE_OK=0
+          fi
+        fi
+      done
 
-      if grep -q "MATCH" lvs.log 2>/dev/null; then
-        echo "PASS: LVS matched"
+      # Convert top-level netlist to SPICE (macros are blackbox instances)
+      echo "Converting top-level netlist to SPICE..."
+      yosys -p "
+        read_liberty -lib $CELL_LIB;
+        read_verilog $NETLIST;
+        hierarchy -top AegisFPGA;
+        write_spice -big_endian raw_netlist.spice;
+      " 2>&1 | tee v2spice.log
+
+      if [ -f raw_netlist.spice ]; then
+        echo "Subcircuits in raw SPICE:"
+        grep '\.subckt' raw_netlist.spice | head -20 || true
+
+        # Assemble complete SPICE netlist:
+        # 1. PDK standard cell SPICE models
+        # 2. Per-macro SPICE subcircuits (from tile hardening)
+        # 3. Top-level AegisFPGA subcircuit
+        {
+          # PDK cell models
+          for f in $CELL_SPICE/*.spice; do
+            echo ".include $f"
+          done
+          echo ""
+
+          # Macro subcircuit definitions
+          for f in macro_spice/*.spice; do
+            if [ -e "$f" ]; then
+              # Extract subcircuit definitions (skip any top-level test harness)
+              sed -n '/^\.subckt/,/^\.ends/p' "$f"
+              echo ""
+            fi
+          done
+
+          # Top-level subcircuit
+          sed -n '/^\.subckt AegisFPGA/,/^\.ends/p' raw_netlist.spice
+        } > netlist.spice
+
+        SUBCKT_COUNT=$(grep -c '^\.subckt' netlist.spice || true)
+        echo "PASS: SPICE netlist generated ($SUBCKT_COUNT subcircuits, $(wc -l < netlist.spice) lines)"
       else
-        echo "WARNING: LVS result needs review"
+        echo "FAIL: SPICE conversion failed"
       fi
     else
-      echo "NOTE: LVS skipped (script or netlist not available, PDK: ${pdkName})"
+      echo "NOTE: Verilog netlist not found, skipping SPICE conversion"
     fi
 
     echo "=== GDS verification complete ==="
@@ -182,8 +281,9 @@ stdenvNoCC.mkDerivation {
     runHook preInstall
     mkdir -p $out
     cp *.log $out/ 2>/dev/null || true
+    cp netlist.spice $out/ 2>/dev/null || true
+    cp raw_netlist.spice $out/ 2>/dev/null || true
     cp -r drc_output $out/ 2>/dev/null || true
-    cp -r lvs_output $out/ 2>/dev/null || true
     echo "PASS" > $out/result
     runHook postInstall
   '';

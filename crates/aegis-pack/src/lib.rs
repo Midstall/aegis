@@ -363,7 +363,39 @@ fn pack_routing_pip(
         }
     }
 
+    // Neighbor direct connections: adjacent CLB output -> this tile's CLB input
     if src_gx != dst_gx || src_gy != dst_gy {
+        if let Some(rest) = dst_wire.strip_prefix("CLB_I") {
+            if let Ok(idx) = rest.parse::<usize>() {
+                if idx < 4 && (src_wire == "CLB_O" || src_wire == "CLB_Q") {
+                    let nb_dir = if dy == 1 {
+                        0
+                    }
+                    // src is north
+                    else if dx == -1 {
+                        1
+                    }
+                    // src is east
+                    else if dy == -1 {
+                        2
+                    }
+                    // src is south
+                    else {
+                        3
+                    }; // src is west
+                    if let Some(&(tile_offset, config_width)) = tile_offsets.get(&(dst_x, dst_y)) {
+                        let min_width = tile_bits::tile_config_width(tracks);
+                        if config_width >= min_width {
+                            let base = fabric_base + tile_offset;
+                            let isw = tile_bits::input_sel_width(tracks);
+                            let sel_val = tile_bits::mux_neighbor(nb_dir, tracks);
+                            let sel_offset = base + tile_bits::input_sel_offset(idx, tracks);
+                            write_bits(bits, sel_offset, sel_val, isw);
+                        }
+                    }
+                }
+            }
+        }
         return;
     }
 
@@ -428,9 +460,11 @@ fn parse_track_wire(wire: &str) -> Option<(usize, usize)> {
     Some((dir, track))
 }
 
-/// Extract the track number from a wire name (e.g., "S1" -> 1, "N0" -> 0).
+/// Extract the track number from a wire name (e.g., "S1" -> 1, "N0" -> 0, "OUT_N0" -> 0).
 fn parse_track(wire: &str) -> Option<usize> {
-    parse_track_wire(wire).map(|(_, t)| t)
+    parse_track_wire(wire)
+        .or_else(|| parse_output_mux_wire(wire))
+        .map(|(_, t)| t)
 }
 
 /// Parse a per-track output mux wire like "OUT_N0", "OUT_E3".
@@ -529,7 +563,7 @@ mod tests {
             "device": "test",
             "fabric": {
                 "width": 2, "height": 2, "tracks": 1,
-                "tile_config_width": 46,
+                "tile_config_width": 50,
                 "bram": { "column_interval": 0, "columns": [],
                           "data_width": null, "addr_width": null,
                           "depth": null, "tile_config_width": 8 },
@@ -543,19 +577,19 @@ mod tests {
             "clock": { "tile_count": 0, "tile_config_width": 49,
                        "outputs_per_tile": 4, "total_outputs": 0 },
             "config": {
-                "total_bits": 248,
+                "total_bits": 264,
                 "chain_order": [
                     { "section": "io_tiles", "count": 8,
                       "bits_per_tile": 8, "total_bits": 64 },
                     { "section": "fabric_tiles", "count": 4,
-                      "total_bits": 184 }
+                      "total_bits": 200 }
                 ]
             },
             "tiles": [
-                { "x": 0, "y": 0, "type": "lut", "config_width": 46, "config_offset": 0 },
-                { "x": 1, "y": 0, "type": "lut", "config_width": 46, "config_offset": 46 },
-                { "x": 0, "y": 1, "type": "lut", "config_width": 46, "config_offset": 92 },
-                { "x": 1, "y": 1, "type": "lut", "config_width": 46, "config_offset": 138 }
+                { "x": 0, "y": 0, "type": "lut", "config_width": 50, "config_offset": 0 },
+                { "x": 1, "y": 0, "type": "lut", "config_width": 50, "config_offset": 50 },
+                { "x": 0, "y": 1, "type": "lut", "config_width": 50, "config_offset": 100 },
+                { "x": 1, "y": 1, "type": "lut", "config_width": 50, "config_offset": 150 }
             ]
         }"#,
         )
@@ -656,7 +690,7 @@ mod tests {
         let pnr = test_pnr_with_lut(1, 0, "16'h1234");
         let bits = pack(&desc, &pnr);
 
-        let init = read_bits(&bits, 64 + 46, 16); // tile (1,0) offset=46
+        let init = read_bits(&bits, 64 + 50, 16); // tile (1,0) offset=50
         assert_eq!(init, 0x1234);
     }
 
@@ -713,8 +747,8 @@ mod tests {
         );
         let bits = pack(&desc, &PnrOutput { modules });
 
-        // tile (1,1) offset=138
-        assert_ne!(read_bits(&bits, 64 + 138 + tile_bits::CARRY_MODE, 1), 0);
+        // tile (1,1) offset=150
+        assert_ne!(read_bits(&bits, 64 + 150 + tile_bits::CARRY_MODE, 1), 0);
     }
 
     #[test]
@@ -737,7 +771,7 @@ mod tests {
         let bits = pack(&desc, &pnr);
 
         let isw = tile_bits::input_sel_width(tracks);
-        let sel = read_bits(&bits, 64 + 46 + tile_bits::input_sel_offset(2, tracks), isw);
+        let sel = read_bits(&bits, 64 + 50 + tile_bits::input_sel_offset(2, tracks), isw);
         assert_eq!(sel, tile_bits::mux_dir_track(1, 0, tracks)); // E0
     }
 
@@ -779,14 +813,14 @@ mod tests {
         let pnr = test_pnr_with_routing(&["X2/Y2/OUT_W0/X2/Y2/CLB_Q"]);
         let bits = pack(&desc, &pnr);
 
-        // tile (1,1) offset=138
+        // tile (1,1) offset=150
         assert_ne!(
-            read_bits(&bits, 64 + 138 + tile_bits::output_en(3, 0, tracks), 1),
+            read_bits(&bits, 64 + 150 + tile_bits::output_en(3, 0, tracks), 1),
             0
         );
         let sel = read_bits(
             &bits,
-            64 + 138 + tile_bits::output_sel(3, 0, tracks),
+            64 + 150 + tile_bits::output_sel(3, 0, tracks),
             tile_bits::OUTPUT_SEL_WIDTH,
         );
         assert_eq!(sel, tile_bits::OUT_MUX_CLB);

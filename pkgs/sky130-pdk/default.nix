@@ -59,6 +59,53 @@ stdenvNoCC.mkDerivation {
       layer = 236;
       datatype = 0;
     };
+    # LEF layer name -> GDS layer/datatype mapping for KLayout DEF->GDS
+    lefGdsLayers = {
+      li1 = {
+        layer = 67;
+        datatype = 20;
+      };
+      mcon = {
+        layer = 67;
+        datatype = 44;
+      };
+      met1 = {
+        layer = 68;
+        datatype = 20;
+      };
+      via = {
+        layer = 68;
+        datatype = 44;
+      };
+      met2 = {
+        layer = 69;
+        datatype = 20;
+      };
+      via2 = {
+        layer = 69;
+        datatype = 44;
+      };
+      met3 = {
+        layer = 70;
+        datatype = 20;
+      };
+      via3 = {
+        layer = 70;
+        datatype = 44;
+      };
+      met4 = {
+        layer = 71;
+        datatype = 20;
+      };
+      via4 = {
+        layer = 71;
+        datatype = 44;
+      };
+      met5 = {
+        layer = 72;
+        datatype = 20;
+      };
+    };
   };
 
   meta = {

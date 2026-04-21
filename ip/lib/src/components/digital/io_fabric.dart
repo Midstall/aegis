@@ -95,6 +95,8 @@ class IOFabric extends Module {
 
     for (int i = 0; i < pads; i++) {
       ioTiles[i].$2 <= padIn[i];
+    }
+    for (int i = 0; i < pads; i++) {
       ioTiles[i].$5 <= cfgLoad;
     }
 
@@ -142,6 +144,8 @@ class IOFabric extends Module {
     if (serdesCount > 0) {
       for (int i = 0; i < serdesCount; i++) {
         serdesTiles[i].$2 <= serialIn![i];
+      }
+      for (int i = 0; i < serdesCount; i++) {
         serdesTiles[i].$5 <= cfgLoad;
       }
 

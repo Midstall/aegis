@@ -2,8 +2,9 @@ import 'dart:math';
 import 'clb_config.dart';
 
 /// Compute the input select width for a given number of tracks.
-/// Values: N0..N(T-1), E0..E(T-1), S0..S(T-1), W0..W(T-1), CLB_OUT, const0, const1
-int inputSelWidth(int tracks) => (4 * tracks + 3 - 1).bitLength;
+/// Values: N0..N(T-1), E0..E(T-1), S0..S(T-1), W0..W(T-1),
+///         CLB_OUT, const0, const1, NB_N, NB_E, NB_S, NB_W
+int inputSelWidth(int tracks) => (4 * tracks + 7 - 1).bitLength;
 
 /// Compute the total tile config width for a given number of tracks.
 ///
@@ -14,7 +15,7 @@ int inputSelWidth(int tracks) => (4 * tracks + 3 - 1).bitLength;
 ///                      for each direction (N,E,S,W) and track (0..T-1):
 ///                        1 enable bit + 3 select bits = 4 bits
 ///
-/// For T=1: 18 + 4*3 + 4*1*4 = 46 (backward compatible)
+/// For T=1: 18 + 4*4 + 4*1*4 = 50
 /// For T=4: 18 + 4*5 + 4*4*4 = 102
 int tileConfigWidth(int tracks) =>
     18 + 4 * inputSelWidth(tracks) + 4 * tracks * 4;
@@ -31,6 +32,9 @@ int inputSelConst0(int tracks) => 4 * tracks + 1;
 
 /// Input mux select value for constant 1.
 int inputSelConst1(int tracks) => 4 * tracks + 2;
+
+/// Input mux select value for neighbor CLB output (0=N, 1=E, 2=S, 3=W).
+int inputSelNeighbor(int direction, int tracks) => 4 * tracks + 3 + direction;
 
 /// Per-track output configuration.
 class TrackOutputConfig {

@@ -9,7 +9,7 @@
 //!   [18..18+4*ISW-1]    input mux sel0..sel3 (ISW = input_sel_width(T))
 //!   [18+4*ISW..]        per-track output: 4 dirs × T tracks × (1 en + 3 sel)
 //!
-//! For T=1: 46 bits (backward compatible with original layout)
+//! For T=1: 50 bits
 //! For T=4: 102 bits
 
 // --- Fixed offsets (track-independent) ---
@@ -33,9 +33,10 @@ pub const OUTPUT_SEL_WIDTH: usize = 3;
 // --- Parametric layout functions ---
 
 /// Width of input select field for T tracks.
-/// Encodes: N0..N(T-1), E0..E(T-1), S0..S(T-1), W0..W(T-1), CLB_OUT, const0, const1
+/// Encodes: N0..N(T-1), E0..E(T-1), S0..S(T-1), W0..W(T-1),
+///          CLB_OUT, const0, const1, NB_N, NB_E, NB_S, NB_W
 pub fn input_sel_width(tracks: usize) -> usize {
-    let n = 4 * tracks + 3;
+    let n = 4 * tracks + 7;
     (usize::BITS - (n - 1).leading_zeros()) as usize
 }
 
@@ -82,6 +83,11 @@ pub fn mux_const0(tracks: usize) -> u64 {
 /// Input mux select value for constant 1.
 pub fn mux_const1(tracks: usize) -> u64 {
     (4 * tracks + 2) as u64
+}
+
+/// Input mux select value for neighbor CLB output (direction 0=N, 1=E, 2=S, 3=W).
+pub fn mux_neighbor(dir: usize, tracks: usize) -> u64 {
+    (4 * tracks + 3 + dir) as u64
 }
 
 // --- Bitstream read/write helpers ---

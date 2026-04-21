@@ -192,18 +192,15 @@ TEST_F(AegisTest, CLBOutputDrivesAllPerTrackMuxes) {
 }
 
 TEST_F(AegisTest, PassThroughPipsUseSameTrackIndex) {
-  // OUT_N{t} should have pips from E{t}, S{t}, W{t} (same track index)
+  // OUT_N{t} should have pips from all 4 directions at same track index
   for (int t = 0; t < TEST_T; t++) {
     auto dst = "X2/Y2/OUT_N" + std::to_string(t);
-    // Should have pip from E{t}, S{t}, W{t}
-    EXPECT_NE(find_pip(dst, "X2/Y2/E" + std::to_string(t)), PipId())
-        << "Missing pass-through pip: E" << t << " -> OUT_N" << t;
-    EXPECT_NE(find_pip(dst, "X2/Y2/S" + std::to_string(t)), PipId());
-    EXPECT_NE(find_pip(dst, "X2/Y2/W" + std::to_string(t)), PipId());
-    // Should NOT have pip from N{t} (same direction)
-    EXPECT_EQ(find_pip(dst, "X2/Y2/N" + std::to_string(t)), PipId())
-        << "Should not have self-direction pass-through: N" << t << " -> OUT_N"
-        << t;
+    const char *dirs[] = {"N", "E", "S", "W"};
+    for (auto dir : dirs) {
+      EXPECT_NE(find_pip(dst, "X2/Y2/" + std::string(dir) + std::to_string(t)),
+                PipId())
+          << "Missing pass-through pip: " << dir << t << " -> OUT_N" << t;
+    }
   }
 }
 
@@ -215,26 +212,29 @@ TEST_F(AegisTest, PassThroughDoesNotCrossTrackIndices) {
       << "Cross-track pass-through should not exist";
 }
 
-TEST_F(AegisTest, FanOutPipFromOutputMuxToTrack) {
-  // Each OUT_N{t} should drive N{t} (1:1 fan-out)
+TEST_F(AegisTest, OutputMuxDrivesInterTileDirectly) {
+  // OUT_N{t} should drive the neighboring tile's S{t} via inter-tile pip,
+  // not the local N{t} track (which is input-only).
   for (int t = 0; t < TEST_T; t++) {
-    auto src = "X1/Y1/OUT_N" + std::to_string(t);
-    auto dst = "X1/Y1/N" + std::to_string(t);
-    EXPECT_NE(find_pip(dst, src), PipId())
-        << "Missing fan-out pip: OUT_N" << t << " -> N" << t;
+    auto src = "X2/Y2/OUT_N" + std::to_string(t);
+    // Should NOT drive local track (input/output are separated)
+    auto local_dst = "X2/Y2/N" + std::to_string(t);
+    EXPECT_EQ(find_pip(local_dst, src), PipId())
+        << "OUT_N" << t << " should not drive local N" << t;
+    // Should drive neighbor's track via inter-tile
+    auto nb_dst = "X2/Y1/S" + std::to_string(t);
+    EXPECT_NE(find_pip(nb_dst, src), PipId())
+        << "OUT_N" << t << " should drive neighbor's S" << t;
   }
-  // OUT_N0 should NOT drive N1 (fan-out is 1:1)
-  EXPECT_EQ(find_pip("X1/Y1/N1", "X1/Y1/OUT_N0"), PipId())
-      << "Fan-out should be 1:1, not cross-track";
 }
 
 TEST_F(AegisTest, OutputMuxSourceCount) {
-  // Each per-track output mux wire should have exactly 5 uphill pips:
-  // CLB_O, CLB_Q, and 3 pass-through from other directions
+  // Each per-track output mux wire should have exactly 6 uphill pips:
+  // CLB_O, CLB_Q, and 4 pass-through from all directions
   for (int t = 0; t < TEST_T; t++) {
     auto wire = "X2/Y2/OUT_N" + std::to_string(t);
-    EXPECT_EQ(count_uphill(wire), 5)
-        << "OUT_N" << t << " should have 5 sources (CLB_O, CLB_Q, E, S, W)";
+    EXPECT_EQ(count_uphill(wire), 6)
+        << "OUT_N" << t << " should have 6 sources (CLB_O, CLB_Q, N, E, S, W)";
   }
 }
 
@@ -266,9 +266,9 @@ TEST_F(AegisTest, InputMuxHasCLBFeedback) {
 }
 
 TEST_F(AegisTest, InputMuxTotalSources) {
-  // Each CLB_I should have 4*T + 2 uphill pips (4 dirs * T tracks + CLB_O +
-  // CLB_Q)
-  int expected = 4 * TEST_T + 2;
+  // Each CLB_I should have 4*T + 2 + 8 uphill pips (4 dirs * T tracks +
+  // CLB_O + CLB_Q + 4 neighbor lut_out + 4 neighbor ff_q)
+  int expected = 4 * TEST_T + 2 + 8;
   for (int i = 0; i < 4; i++) {
     auto wire = "X2/Y2/CLB_I" + std::to_string(i);
     EXPECT_EQ(count_uphill(wire), expected)
@@ -288,32 +288,32 @@ TEST_F(AegisTest, ClockWireDrivenByAllTracks) {
 // === Inter-tile pip tests ===
 
 TEST_F(AegisTest, Span1InterTilePips) {
-  // N0 at (2,2) should drive S0 at (2,1) (span-1 northward)
-  EXPECT_NE(find_pip("X2/Y1/S0", "X2/Y2/N0"), PipId())
+  // OUT_N0 at (2,2) should drive S0 at (2,1) (span-1 northward)
+  EXPECT_NE(find_pip("X2/Y1/S0", "X2/Y2/OUT_N0"), PipId())
       << "Missing span-1 inter-tile pip northward";
-  // E0 at (2,2) should drive W0 at (3,2) (span-1 eastward)
-  EXPECT_NE(find_pip("X3/Y2/W0", "X2/Y2/E0"), PipId())
+  // OUT_E0 at (2,2) should drive W0 at (3,2) (span-1 eastward)
+  EXPECT_NE(find_pip("X3/Y2/W0", "X2/Y2/OUT_E0"), PipId())
       << "Missing span-1 inter-tile pip eastward";
 }
 
 TEST_F(AegisTest, Span2InterTilePips) {
-  // N0 at (2,3) should drive S0 at (2,1) (span-2 northward)
-  EXPECT_NE(find_pip("X2/Y1/S0", "X2/Y3/N0"), PipId())
+  // OUT_N0 at (2,3) should drive S0 at (2,1) (span-2 northward)
+  EXPECT_NE(find_pip("X2/Y1/S0", "X2/Y3/OUT_N0"), PipId())
       << "Missing span-2 inter-tile pip northward";
 }
 
 TEST_F(AegisTest, Span4InterTilePips) {
-  // S0 at (2,1) should drive N0 at (2,5) (span-4 southward)
+  // OUT_S0 at (2,1) should drive N0 at (2,5) (span-4 southward)
   // y=1 + 4 = 5, which is within the grid (gh=6)
-  EXPECT_NE(find_pip("X2/Y5/N0", "X2/Y1/S0"), PipId())
+  EXPECT_NE(find_pip("X2/Y5/N0", "X2/Y1/OUT_S0"), PipId())
       << "Missing span-4 inter-tile pip southward";
 }
 
 TEST_F(AegisTest, InterTilePipsPreserveTrackIndex) {
-  // N2 at (2,2) should drive S2 at (2,1), not S0
-  EXPECT_NE(find_pip("X2/Y1/S2", "X2/Y2/N2"), PipId())
+  // OUT_N2 at (2,2) should drive S2 at (2,1), not S0
+  EXPECT_NE(find_pip("X2/Y1/S2", "X2/Y2/OUT_N2"), PipId())
       << "Inter-tile pip should preserve track index";
-  EXPECT_EQ(find_pip("X2/Y1/S0", "X2/Y2/N2"), PipId())
+  EXPECT_EQ(find_pip("X2/Y1/S0", "X2/Y2/OUT_N2"), PipId())
       << "Inter-tile pip should not cross track indices";
 }
 
@@ -321,6 +321,7 @@ TEST_F(AegisTest, InterTilePipsPreserveTrackIndex) {
 
 TEST_F(AegisTest, IOTileSpan1Only) {
   // IO tile at (0,1): should have span-1 inter-tile pips
+  // IO tiles use track wires directly (no output mux)
   EXPECT_NE(find_pip("X1/Y1/W0", "X0/Y1/E0"), PipId())
       << "IO tile should have span-1 eastward pip";
 

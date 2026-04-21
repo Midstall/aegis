@@ -99,15 +99,37 @@ fn ff_captures_lut_output() {
 }
 
 #[test]
-fn ff_disabled_holds_zero() {
+fn ff_always_latches_regardless_of_enable() {
+    // FF always captures LUT output (Dart: Sequential(clk, [ffQ < lutOut])).
+    // ff_enable only controls the output mux, not the FF clock.
     let mut cfg = make_cfg(1);
     cfg.lut_init = 0xFFFF;
     cfg.ff_enable = false;
 
     let mut sim = make_sim(cfg);
     sim.step();
+    // FF captures lut_out=1 even though ff_enable is false
+    assert!(sim.state[1][1].ff_q);
+    // Output uses raw lut_out (not ff_q) when ff_enable=false
+    assert!(sim.state[1][1].lut_out);
+}
+
+#[test]
+fn ff_enable_selects_ff_output() {
+    // When ff_enable=true, CLB output is ff_q (one cycle delayed)
+    let mut cfg = make_cfg(1);
+    cfg.lut_init = 0xFFFF; // constant 1
+    cfg.ff_enable = true;
+
+    let mut sim = make_sim(cfg);
+    // Cycle 1: lut_out=1, clb_out=ff_q_prev=0 (initial), ff_q_next=1
     sim.step();
-    assert!(!sim.state[1][1].ff_q);
+    assert!(sim.state[1][1].ff_q); // FF captured lut_out=1
+    assert!(!sim.state[1][1].lut_out); // clb_out = ff_q_prev = 0
+
+    // Cycle 2: lut_out=1, clb_out=ff_q_prev=1, ff_q_next=1
+    sim.step();
+    assert!(sim.state[1][1].lut_out); // clb_out = ff_q_prev = 1
 }
 
 #[test]

@@ -115,8 +115,8 @@ void main() {
       expect(decoded.outputs[3][0].select, 0);
     });
 
-    test('T=1 fits in 46 bits', () {
-      expect(tileConfigWidth(1), 46);
+    test('T=1 fits in 50 bits', () {
+      expect(tileConfigWidth(1), 50);
       final cfg = TileConfig(
         clb: const ClbConfig(
           lut: Lut4Config(truthTable: 0xFFFF),
@@ -124,7 +124,7 @@ void main() {
           carryMode: true,
         ),
         tracks: 1,
-        inputSel: [6, 6, 6, 6], // max value for T=1
+        inputSel: [10, 10, 10, 10], // max value for T=1 (NB_W)
         outputs: [
           [const TrackOutputConfig(enable: true, select: 7)],
           [const TrackOutputConfig(enable: true, select: 7)],
@@ -133,7 +133,7 @@ void main() {
         ],
       );
       final bits = cfg.encode();
-      expect(bits < (BigInt.one << 46), true);
+      expect(bits < (BigInt.one << 50), true);
     });
 
     test('T=4 width is 102', () {

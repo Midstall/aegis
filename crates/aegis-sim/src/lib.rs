@@ -198,19 +198,19 @@ impl Simulator {
                 false
             };
 
+            // CLB output matches Dart: mux(carryMode, sum, mux(useFF, ffQ, lutOut))
             let clb_out = if cfg.carry_mode {
                 lut_out ^ carry_in
+            } else if cfg.ff_enable {
+                self.state[x][y].ff_q
             } else {
                 lut_out
             };
 
             self.next_state[x][y].lut_out = clb_out;
             self.next_state[x][y].carry_out = carry_out;
-            self.next_state[x][y].ff_q = if cfg.ff_enable {
-                clb_out
-            } else {
-                self.state[x][y].ff_q
-            };
+            // FF always captures LUT output (Dart: Sequential(clk, [ffQ < lutOut]))
+            self.next_state[x][y].ff_q = lut_out;
 
             // Per-track output routing
             for dir in 0..4usize {
@@ -287,13 +287,15 @@ impl Simulator {
     }
 
     /// Input mux: decode select value to get input signal.
-    /// Encoding: dir*T + track for directional, 4*T for CLB_OUT, 4*T+1 for const0, 4*T+2 for const1.
+    /// Encoding: dir*T + track for directional, 4*T for CLB_OUT,
+    /// 4*T+1 for const0, 4*T+2 for const1, 4*T+3..4*T+6 for neighbor N/E/S/W.
     fn select_input(&self, x: usize, y: usize, sel: u8) -> bool {
         let sel = sel as usize;
         let t = self.tracks;
         let clb_out_val = 4 * t;
         let const0_val = 4 * t + 1;
         let const1_val = 4 * t + 2;
+        let nb_base = 4 * t + 3;
 
         if sel < clb_out_val {
             let dir = sel / t;
@@ -305,6 +307,20 @@ impl Simulator {
             false
         } else if sel == const1_val {
             true
+        } else if sel >= nb_base && sel < nb_base + 4 {
+            // Neighbor CLB output: N=0, E=1, S=2, W=3
+            let nb_dir = sel - nb_base;
+            let (nx, ny) = match nb_dir {
+                0 => (x, y.wrapping_sub(1)), // north
+                1 => (x + 1, y),             // east
+                2 => (x, y + 1),             // south
+                _ => (x.wrapping_sub(1), y), // west
+            };
+            if nx < self.gw && ny < self.gh {
+                self.state[nx][ny].lut_out
+            } else {
+                false
+            }
         } else {
             false
         }

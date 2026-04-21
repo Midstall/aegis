@@ -211,6 +211,8 @@ class LutFabric extends Module {
         final tileCfgLoad = Logic();
         final tileCarryIn = Logic(name: 'carryIn_${x}_$y');
 
+        final tileNbClb = TileInterface();
+
         final Module tile;
         if (bram.contains(x)) {
           tile = BramTile(
@@ -243,17 +245,36 @@ class LutFabric extends Module {
             tileIn,
             tileOut,
             carryIn: tileCarryIn,
+            neighborClbOut: tileNbClb,
             tracks: tracks,
           );
         }
 
-        return (tile, tileIn, tileOut, tileCfgIn, tileCfgLoad, tileCarryIn);
+        return (
+          tile,
+          tileIn,
+          tileOut,
+          tileCfgIn,
+          tileCfgLoad,
+          tileCarryIn,
+          tileNbClb,
+        );
       }),
     );
 
     // Config chain: row-major order
     final flat =
-        <(Module, TileInterface, TileInterface, Logic, Logic, Logic)>[];
+        <
+          (
+            Module,
+            TileInterface,
+            TileInterface,
+            Logic,
+            Logic,
+            Logic,
+            TileInterface,
+          )
+        >[];
 
     for (int y = 0; y < height; y++) {
       for (int x = 0; x < width; x++) {
@@ -279,6 +300,20 @@ class LutFabric extends Module {
 
       for (int y = height - 2; y >= 0; y--) {
         tiles[x][y].$6 <= tiles[x][y + 1].$1.output('carryOut');
+      }
+    }
+
+    // Neighbor CLB output wiring
+    for (int x = 0; x < width; x++) {
+      for (int y = 0; y < height; y++) {
+        final nbClb = tiles[x][y].$7;
+        Logic clbOutOf(int nx, int ny) =>
+            tiles[nx][ny].$1.tryOutput('clbOut') ?? Const(0);
+
+        nbClb.north <= ((y > 0) ? clbOutOf(x, y - 1) : Const(0));
+        nbClb.east <= ((x < width - 1) ? clbOutOf(x + 1, y) : Const(0));
+        nbClb.south <= ((y < height - 1) ? clbOutOf(x, y + 1) : Const(0));
+        nbClb.west <= ((x > 0) ? clbOutOf(x - 1, y) : Const(0));
       }
     }
 

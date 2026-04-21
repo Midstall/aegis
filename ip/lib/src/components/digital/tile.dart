@@ -39,6 +39,8 @@ class Tile extends Module {
   Logic get carryIn => input('carryIn');
   Logic get carryOut => output('carryOut');
 
+  Logic get clbOut => output('clbOut');
+
   final int tracks;
 
   int get configWidth => tileConfigWidth(tracks);
@@ -51,6 +53,7 @@ class Tile extends Module {
     TileInterface input,
     TileInterface output, {
     required Logic carryIn,
+    required TileInterface neighborClbOut,
     this.tracks = 1,
   }) : super(name: 'tile') {
     clk = addInput('clk', clk);
@@ -62,6 +65,16 @@ class Tile extends Module {
 
     carryIn = addInput('carryIn', carryIn);
     addOutput('carryOut');
+    addOutput('clbOut');
+
+    neighborClbOut = neighborClbOut.clone()
+      ..connectIO(
+        this,
+        neighborClbOut,
+        inputTags: {TilePortGroup.routing},
+        outputTags: {},
+        uniquify: (orig) => 'nb_$orig',
+      );
 
     input = input.clone()
       ..connectIO(
@@ -118,15 +131,30 @@ class Tile extends Module {
 
     final outBase = 18 + 4 * isw;
 
-    final clbOut = Logic();
+    // Neighbor CLB output ports (N, E, S, W)
+    final nbPorts = [
+      neighborClbOut.north,
+      neighborClbOut.east,
+      neighborClbOut.south,
+      neighborClbOut.west,
+    ];
 
-    // Input mux: select from direction*T+track for directional, 4*T+{0,1,2} for internal
+    // Input mux: select from direction*T+track for directional,
+    // 4*T+{0,1,2} for internal, 4*T+{3,4,5,6} for neighbor CLB outputs
     Logic selectInput(Logic selBits) {
       final result = Logic();
-      final nValues = 4 * tracks + 3;
 
       // Build mux chain from highest value down
       Logic chain = Const(0, width: 1);
+
+      // Neighbor CLB outputs: W, S, E, N (highest values down)
+      for (var d = 3; d >= 0; d--) {
+        chain = mux(
+          selBits.eq(Const(inputSelNeighbor(d, tracks), width: isw)),
+          nbPorts[d],
+          chain,
+        );
+      }
 
       // const1
       chain = mux(
@@ -211,7 +239,4 @@ class Tile extends Module {
     output.south <= dirOutputs[2].reversed.toList().swizzle();
     output.west <= dirOutputs[3].reversed.toList().swizzle();
   }
-
-  // For backward compatibility (T=1)
-  static const int CONFIG_WIDTH = 46;
 }

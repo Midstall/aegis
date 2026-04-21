@@ -41,6 +41,11 @@ struct Args {
     /// Clock pad by edge and position (e.g., w0)
     #[arg(long)]
     clock_pin: Option<String>,
+
+    /// Set a pin high for a cycle range: "w1:0-9" sets west pad 1 high
+    /// during cycles 0 through 9. Multiple allowed.
+    #[arg(long, value_delimiter = ',')]
+    set_pin: Vec<String>,
 }
 
 fn main() {
@@ -122,10 +127,46 @@ fn main() {
         eprintln!("Clock pad: {cp}");
     }
 
+    // Parse --set-pin entries: "w1:0-9" -> (pad_idx, start_cycle, end_cycle)
+    let mut stimuli: Vec<(usize, u64, u64)> = Vec::new();
+    for spec in &args.set_pin {
+        let parts: Vec<&str> = spec.split(':').collect();
+        if parts.len() != 2 {
+            eprintln!("Invalid --set-pin format '{spec}', expected 'pin:start-end'");
+            continue;
+        }
+        let pin = parts[0];
+        let (edge, pos) = pin.split_at(1);
+        let p: usize = pos.parse().expect("Invalid pin position");
+        let pad_idx = match edge {
+            "n" | "N" => p,
+            "e" | "E" => fw + p,
+            "s" | "S" => fw + fh + p,
+            "w" | "W" => 2 * fw + fh + p,
+            _ => {
+                eprintln!("Unknown edge '{edge}' in set-pin '{spec}'");
+                continue;
+            }
+        };
+        let range: Vec<&str> = parts[1].split('-').collect();
+        let start: u64 = range[0].parse().expect("Invalid start cycle");
+        let end: u64 = if range.len() > 1 {
+            range[1].parse().expect("Invalid end cycle")
+        } else {
+            args.cycles
+        };
+        eprintln!("Set pin {pin} (pad {pad_idx}) high for cycles {start}-{end}");
+        stimuli.push((pad_idx, start, end));
+    }
+
     for cycle in 0..args.cycles {
         // Toggle clock pad each cycle
         if let Some(cp) = clock_pad {
             sim.set_io(cp, cycle % 2 == 0);
+        }
+        // Apply stimuli
+        for &(pad, start, end) in &stimuli {
+            sim.set_io(pad, cycle >= start && cycle <= end);
         }
         sim.step();
 

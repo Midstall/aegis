@@ -10,6 +10,7 @@
   python3,
   aegis-ip,
   aegis-sim,
+  jq,
 }:
 
 let
@@ -24,6 +25,7 @@ stdenvNoCC.mkDerivation {
     python3
     aegis-ip.tools
     aegis-sim
+    jq
   ];
 
   buildPhase = ''
@@ -36,8 +38,8 @@ stdenvNoCC.mkDerivation {
         # against the Rust formula.
 
         DESCRIPTOR="${aegis-ip}/${deviceName}.json"
-        TRACKS=$(python3 -c "import json; d=json.load(open('$DESCRIPTOR')); print(d['fabric']['tracks'])")
-        DART_WIDTH=$(python3 -c "import json; d=json.load(open('$DESCRIPTOR')); print(d['fabric']['tile_config_width'])")
+        TRACK=$(jq -r '.fabric.tracks' "$DESCRIPTOR")
+        DART_WIDTH=$(jq -r '.fabric.tile_config_width' "$DESCRIPTOR")
 
         echo "Device: ${deviceName}, tracks: $TRACKS, Dart tile_config_width: $DART_WIDTH"
 
@@ -58,9 +60,9 @@ stdenvNoCC.mkDerivation {
     if errors > 0:
         sys.exit(1)
 
-    # Verify the Dart formula: width = 18 + 4*ceil(log2(4*T+3)) + 4*T*4
+    # Verify the Dart formula: width = 18 + 4*ceil(log2(4*T+7)) + 4*T*4
     import math
-    isw = math.ceil(math.log2(4*tracks + 3))
+    isw = math.ceil(math.log2(4*tracks + 7))
     rust_formula = 18 + 4*isw + 4*tracks*4
 
     if rust_formula != expected:
@@ -130,7 +132,6 @@ stdenvNoCC.mkDerivation {
   installPhase = ''
     runHook preInstall
     mkdir -p $out
-    echo "PASS" > $out/result
     runHook postInstall
   '';
 }

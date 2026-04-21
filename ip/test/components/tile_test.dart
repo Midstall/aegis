@@ -26,6 +26,7 @@ void main() {
         tileIn,
         tileOut,
         carryIn: carryIn,
+        neighborClbOut: TileInterface(),
         tracks: 1,
       );
       await tile.build();
@@ -74,6 +75,7 @@ void main() {
         tileIn,
         tileOut,
         carryIn: carryIn,
+        neighborClbOut: TileInterface(),
         tracks: 4,
       );
       await tile.build();
@@ -122,6 +124,7 @@ void main() {
         tileIn,
         tileOut,
         carryIn: carryIn,
+        neighborClbOut: TileInterface(),
         tracks: 1,
       );
       await tile.build();

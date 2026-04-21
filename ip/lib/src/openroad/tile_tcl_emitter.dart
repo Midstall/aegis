@@ -100,6 +100,28 @@ class OpenroadTileTclEmitter {
     buf.writeln('global_connect');
     buf.writeln();
 
+    // Tap cell and endcap insertion (required for well taps - DF.13).
+    // Only apply to tiles large enough to absorb the tap cells without
+    // breaking placement legalization.
+    buf.writeln('set die_area [ord::get_die_area]');
+    buf.writeln(
+      'set die_w [expr {[lindex \$die_area 2] - [lindex \$die_area 0]}]',
+    );
+    buf.writeln(
+      'set die_h [expr {[lindex \$die_area 3] - [lindex \$die_area 1]}]',
+    );
+    buf.writeln('if {min(\$die_w, \$die_h) > 60} {');
+    buf.writeln('    tapcell -tapcell_master \${CELL_LIB}__filltie \\');
+    buf.writeln('        -endcap_master \${CELL_LIB}__endcap -distance 15');
+    buf.writeln('}');
+    buf.writeln();
+
+    // Add cell padding to prevent M1.2a violations at abutment.
+    // Only apply when utilization is low enough to absorb the padding.
+    buf.writeln('if {min(\$die_w, \$die_h) > 200} {');
+    buf.writeln('    set_placement_padding -global -left 1 -right 1');
+    buf.writeln('}');
+
     // Placement
     buf.writeln(
       'if {![info exists TILE_PLACEMENT_DENSITY]} '
@@ -133,9 +155,24 @@ class OpenroadTileTclEmitter {
     buf.writeln('    }');
     buf.writeln('}');
     buf.writeln('if {\$top_route_layer eq ""} { set top_route_layer Metal2 }');
-    buf.writeln('set_routing_layers -signal Metal1-\$top_route_layer');
+    buf.writeln('# Route from Metal2 up to avoid M1.2a violations between');
+    buf.writeln('# routed wires and standard cell internal Metal1 geometry.');
+    buf.writeln('set_routing_layers -signal Metal2-\$top_route_layer');
+    buf.writeln('# Apply per-layer routing capacity adjustments');
+    buf.writeln('if {[array exists LAYER_ADJ]} {');
+    buf.writeln('    foreach layer [array names LAYER_ADJ] {');
+    buf.writeln(
+      '        set_global_routing_layer_adjustment \$layer \$LAYER_ADJ(\$layer)',
+    );
+    buf.writeln('    }');
+    buf.writeln('}');
     buf.writeln('global_route -allow_congestion');
-    buf.writeln('detailed_route');
+    buf.writeln(
+      'detailed_route -droute_end_iter 16 '
+      '-output_drc \${DEVICE_NAME}_${tileModule}_drc.rpt',
+    );
+    buf.writeln();
+
     buf.writeln();
 
     // Reports
@@ -165,8 +202,12 @@ class OpenroadTileTclEmitter {
   }
 
   void _writeLayerDetection(StringBuffer buf) {
+    // Skip Metal1 for pin placement. Metal1 is used internally by standard
+    // cells but macro pins on Metal1 cause M1.1/M1.2a spacing violations
+    // when tiles are placed adjacent to each other.
     buf.writeln('set hor_layer ""');
     buf.writeln('set ver_layer ""');
+    buf.writeln('set skip_first_hor 1');
     buf.writeln('foreach layer [get_routing_layers] {');
     buf.writeln(
       '    if {![catch {set tl '
@@ -174,8 +215,11 @@ class OpenroadTileTclEmitter {
     );
     buf.writeln('        if {\$tl ne "NULL"} {');
     buf.writeln('            set dir [\$tl getDirection]');
+    buf.writeln('            if {\$dir eq "HORIZONTAL" && \$skip_first_hor} {');
+    buf.writeln('                # Skip Metal1 (first horizontal layer)');
+    buf.writeln('                set skip_first_hor 0');
     buf.writeln(
-      '            if {\$dir eq "HORIZONTAL" && \$hor_layer eq ""} {',
+      '            } elseif {\$dir eq "HORIZONTAL" && \$hor_layer eq ""} {',
     );
     buf.writeln('                set hor_layer \$layer');
     buf.writeln('            }');
@@ -185,7 +229,7 @@ class OpenroadTileTclEmitter {
     buf.writeln('        }');
     buf.writeln('    }');
     buf.writeln('}');
-    buf.writeln('if {\$hor_layer eq ""} { set hor_layer Metal1 }');
+    buf.writeln('if {\$hor_layer eq ""} { set hor_layer Metal3 }');
     buf.writeln('if {\$ver_layer eq ""} { set ver_layer Metal2 }');
   }
 }

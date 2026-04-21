@@ -34,9 +34,11 @@
     tapeout = {
       pdk = gf180mcu-pdk;
       clockPeriodNs = 20;
-      dieWidthUm = 3930;
-      dieHeightUm = 5120;
-      tilePlacementDensities.SerDesTile = 0.5;
+      fabSlot = "1x1";
+      tilePlacementDensities = {
+        Tile = 0.6;
+        ClockTile = 0.6;
+      };
     };
   };
 }

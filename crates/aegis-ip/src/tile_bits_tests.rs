@@ -3,8 +3,9 @@ use super::*;
 // === Layout formula tests ===
 
 #[test]
-fn t1_backward_compatible_width() {
-    assert_eq!(tile_config_width(1), 46);
+fn t1_width() {
+    // 18 + 4*4 + 4*1*4 = 18 + 16 + 16 = 50
+    assert_eq!(tile_config_width(1), 50);
 }
 
 #[test]
@@ -21,36 +22,34 @@ fn t4_width() {
 
 #[test]
 fn input_sel_width_values() {
-    assert_eq!(input_sel_width(1), 3); // 7 values -> 3 bits
-    assert_eq!(input_sel_width(2), 4); // 11 values -> 4 bits
-    assert_eq!(input_sel_width(4), 5); // 19 values -> 5 bits
+    assert_eq!(input_sel_width(1), 4); // 11 values -> 4 bits
+    assert_eq!(input_sel_width(2), 4); // 15 values -> 4 bits
+    assert_eq!(input_sel_width(4), 5); // 23 values -> 5 bits
 }
 
 #[test]
 fn input_sel_offsets_t1() {
     assert_eq!(input_sel_offset(0, 1), 18);
-    assert_eq!(input_sel_offset(1, 1), 21);
-    assert_eq!(input_sel_offset(2, 1), 24);
-    assert_eq!(input_sel_offset(3, 1), 27);
+    assert_eq!(input_sel_offset(1, 1), 22);
+    assert_eq!(input_sel_offset(2, 1), 26);
+    assert_eq!(input_sel_offset(3, 1), 30);
 }
 
 #[test]
 fn output_base_t1() {
-    // 18 + 4*3 = 30
-    assert_eq!(output_base(1), 30);
+    // 18 + 4*4 = 34
+    assert_eq!(output_base(1), 34);
 }
 
 #[test]
-fn output_offsets_t1_match_original_layout() {
-    // Original layout: EN_NORTH=30, EN_EAST=31, EN_SOUTH=32, EN_WEST=33
-    // SEL_NORTH=34, SEL_EAST=37, SEL_SOUTH=40, SEL_WEST=43
-    // New layout: output_en(dir, 0, 1) = 30 + dir*4, output_sel(dir, 0, 1) = 30 + dir*4 + 1
-    assert_eq!(output_en(0, 0, 1), 30); // EN_NORTH
-    assert_eq!(output_sel(0, 0, 1), 31); // SEL_NORTH at 31 (was 34)
-    // Note: the new layout packs (en, sel[2:0]) as 4 contiguous bits per track,
-    // which differs from the original layout where enables were grouped together.
-    // For T=1 the total width is still 46, but the bit positions within the
-    // output section differ. The Dart tile_config.dart uses the new layout.
+fn output_offsets_t1() {
+    // output_base(1) = 34
+    assert_eq!(output_en(0, 0, 1), 34); // EN_NORTH
+    assert_eq!(output_sel(0, 0, 1), 35); // SEL_NORTH
+    assert_eq!(output_en(1, 0, 1), 38); // EN_EAST
+    assert_eq!(output_en(2, 0, 1), 42); // EN_SOUTH
+    assert_eq!(output_en(3, 0, 1), 46); // EN_WEST
+    // Last bit: 46 + 3 = 49, total width = 50
 }
 
 #[test]
@@ -73,7 +72,7 @@ fn output_offsets_t4() {
 // === Mux select value tests ===
 
 #[test]
-fn mux_values_t1_backward_compatible() {
+fn mux_values_t1() {
     assert_eq!(mux_dir_track(0, 0, 1), 0); // N0
     assert_eq!(mux_dir_track(1, 0, 1), 1); // E0
     assert_eq!(mux_dir_track(2, 0, 1), 2); // S0
@@ -81,6 +80,10 @@ fn mux_values_t1_backward_compatible() {
     assert_eq!(mux_clb_out(1), 4);
     assert_eq!(mux_const0(1), 5);
     assert_eq!(mux_const1(1), 6);
+    assert_eq!(mux_neighbor(0, 1), 7); // NB_N
+    assert_eq!(mux_neighbor(1, 1), 8); // NB_E
+    assert_eq!(mux_neighbor(2, 1), 9); // NB_S
+    assert_eq!(mux_neighbor(3, 1), 10); // NB_W
 }
 
 #[test]
@@ -100,7 +103,7 @@ fn mux_values_t4() {
 fn all_mux_values_fit_in_input_sel_width() {
     for tracks in [1, 2, 4, 8] {
         let isw = input_sel_width(tracks);
-        let max_val = mux_const1(tracks);
+        let max_val = mux_neighbor(3, tracks);
         assert!(
             max_val < (1 << isw),
             "max mux value {} doesn't fit in {} bits for T={}",
@@ -395,7 +398,7 @@ fn max_lut_init_roundtrips() {
 #[test]
 fn max_sel_value_roundtrips() {
     for tracks in [1, 2, 4] {
-        let max_sel = mux_const1(tracks) as u8;
+        let max_sel = mux_neighbor(3, tracks) as u8;
         let mut cfg = TileConfig::default_for(tracks);
         cfg.sel = [max_sel; 4];
         let mut bits = vec![0u8; (tile_config_width(tracks) + 7) / 8];

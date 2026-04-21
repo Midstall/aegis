@@ -76,16 +76,19 @@ stdenvNoCC.mkDerivation {
         --output shift.bin
 
       echo "=== Simulating ==="
+      # Drive din (w1) high for the entire simulation.
+      # After 8+ clock edges (4 FF stages), dout should be high.
       aegis-sim \
         --descriptor ${aegis-ip}/${deviceName}.json \
         --bitstream shift.bin \
         --clock-pin w0 \
         --monitor-pin w2 \
+        --set-pin w1:0-39 \
+        --vcd shift.vcd \
         --cycles 40 \
         2>&1 | tee sim.log
     else
-      echo "INFO: Routing failed (known limitation of shared output mux architecture)"
-      echo "      Shift register requires per-track output muxes for full routability"
+      echo "INFO: Routing not yet supported for this design"
     fi
 
     runHook postBuild
@@ -96,8 +99,10 @@ stdenvNoCC.mkDerivation {
     mkdir -p $out
     cp sim.log $out/ 2>/dev/null || true
     cp shift.bin $out/ 2>/dev/null || true
+    cp shift.vcd $out/ 2>/dev/null || true
     cp yosys.log $out/
     cp nextpnr.log $out/ 2>/dev/null || true
+    cp shift_routed.json $out/ 2>/dev/null || true
     echo "PASS" > $out/result
     runHook postInstall
   '';

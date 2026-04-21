@@ -117,6 +117,56 @@ struct AegisImpl : ViaductAPI {
         h.constrain_cell_pairs(pool<CellTypePort>{{id_lut, id_Y}},
                                pool<CellTypePort>{{id_dff_p, id_D}}, 1);
     log_info("Constrained %d LUTFF pairs.\n", lutffs);
+
+    // Insert identity LUTs for unpaired DFFs. The DFF BEL's D input is
+    // only reachable via lut_out, so every DFF needs a paired LUT.
+    int inserted = 0;
+    std::vector<IdString> dff_ids;
+    for (auto &cell : ctx->cells)
+      if (cell.second->type == id_dff_p)
+        dff_ids.push_back(cell.first);
+
+    for (auto &id : dff_ids) {
+      CellInfo *dff = ctx->cells.at(id).get();
+      if (dff->cluster != ClusterId())
+        continue; // already paired
+
+      // Create an identity LUT: Y = A[0] (init = 0xAAAA)
+      std::string name = dff->name.str(ctx) + std::string("_pass_lut");
+      CellInfo *lut = ctx->createCell(ctx->id(name), id_lut);
+      lut->params[ctx->id("LUT")] = Property(0xAAAA, 16);
+      lut->params[ctx->id("WIDTH")] = Property(4, 32);
+      lut->addInput(ctx->id("A[0]"));
+      lut->addInput(ctx->id("A[1]"));
+      lut->addInput(ctx->id("A[2]"));
+      lut->addInput(ctx->id("A[3]"));
+      lut->addOutput(id_Y);
+
+      // Rewire: DFF.D source → LUT.A[0], LUT.Y → DFF.D
+      NetInfo *d_net = dff->getPort(id_D);
+      dff->disconnectPort(id_D);
+
+      NetInfo *pass_net = ctx->createNet(ctx->id(name + "_y"));
+      lut->connectPort(id_Y, pass_net);
+      dff->connectPort(id_D, pass_net);
+
+      if (d_net)
+        lut->connectPort(ctx->id("A[0]"), d_net);
+
+      // Constrain LUT+DFF as a cluster
+      lut->cluster = lut->name;
+      lut->constr_abs_z = false;
+      lut->constr_children.push_back(dff);
+      dff->cluster = lut->name;
+      dff->constr_x = 0;
+      dff->constr_y = 0;
+      dff->constr_z = 1;
+      dff->constr_abs_z = false;
+
+      inserted++;
+    }
+    if (inserted > 0)
+      log_info("Inserted %d identity LUTs for unpaired DFFs.\n", inserted);
   }
 
   void prePlace() override {
@@ -415,6 +465,22 @@ private:
       add_pip(loc, tw.ff_q, dst, 0.05);    // FF output
     }
 
+    // Neighbor direct connections: adjacent CLB outputs drive this tile's
+    // inputs without consuming routing tracks.
+    const int nb_dx[] = {0, 1, 0, -1}; // N, E, S, W
+    const int nb_dy[] = {-1, 0, 1, 0};
+    for (int d = 0; d < 4; d++) {
+      int nx = x + nb_dx[d];
+      int ny = y + nb_dy[d];
+      if (nx > 0 && nx < W - 1 && ny > 0 && ny < H - 1) {
+        auto &ntw = tile_wires[ny][nx];
+        for (int i = 0; i < K; i++) {
+          add_pip(loc, ntw.lut_out, tw.lut_in[i], 0.03);
+          add_pip(loc, ntw.ff_q, tw.lut_in[i], 0.03);
+        }
+      }
+    }
+
     // Clock: any track from any direction can drive clock
     for (int t = 0; t < T; t++) {
       add_pip(loc, tw.track_n[t], tw.clk, 0.05);
@@ -424,8 +490,10 @@ private:
     }
 
     // Per-track output routing. Each track in each direction has its own
-    // independent output mux, selecting from CLB_O, CLB_Q, or the same
-    // track index from any other direction (pass-through).
+    // independent output mux, selecting from CLB_O, CLB_Q, or any
+    // incoming track (pass-through). The output mux wires (out_X) drive
+    // inter-tile pips directly, keeping input tracks (track_X) and output
+    // mux wires as independent resources.
     std::array<std::vector<WireId> *, 4> out_vecs = {&tw.out_n, &tw.out_e,
                                                      &tw.out_s, &tw.out_w};
     std::array<std::vector<WireId> *, 4> trk_vecs = {&tw.track_n, &tw.track_e,
@@ -436,13 +504,10 @@ private:
         // CLB sources
         add_pip(loc, tw.lut_out, out_wire, 0.05);
         add_pip(loc, tw.ff_q, out_wire, 0.05);
-        // Pass-through from same track of other directions
+        // Pass-through from any incoming direction (including same direction)
         for (int s = 0; s < 4; s++) {
-          if (s != d)
-            add_pip(loc, (*trk_vecs[s])[t], out_wire, 0.05);
+          add_pip(loc, (*trk_vecs[s])[t], out_wire, 0.05);
         }
-        // Output mux wire → track (1:1, not configurable)
-        add_pip(loc, out_wire, (*trk_vecs[d])[t], 0.01);
       }
     }
   }
@@ -492,9 +557,18 @@ private:
     if (tw.track_n.empty())
       return;
 
+    // Logic tiles drive inter-tile pips from their output mux wires (out_X),
+    // keeping input tracks (track_X) as receive-only. IO tiles use their
+    // combined track wires directly (they have no output mux).
+    bool logic = !is_io(x, y);
+    auto &src_n = logic ? tw.out_n : tw.track_n;
+    auto &src_s = logic ? tw.out_s : tw.track_s;
+    auto &src_e = logic ? tw.out_e : tw.track_e;
+    auto &src_w = logic ? tw.out_w : tw.track_w;
+
     // IO ring tiles only get span-1 connections (no multi-span routing
     // through the IO ring — the sim models IO tiles as simple pass-through)
-    int max_span = is_io(x, y) ? 1 : 4;
+    int max_span = logic ? 4 : 1;
     int spans[] = {1, 2, 4};
     for (int span : spans) {
       if (span > max_span)
@@ -503,20 +577,16 @@ private:
       for (int t = 0; t < T; t++) {
         // North
         if (y - span >= 0 && !tile_wires[y - span][x].track_s.empty())
-          add_pip(loc, tw.track_n[t], tile_wires[y - span][x].track_s[t],
-                  delay);
+          add_pip(loc, src_n[t], tile_wires[y - span][x].track_s[t], delay);
         // South
         if (y + span < H && !tile_wires[y + span][x].track_n.empty())
-          add_pip(loc, tw.track_s[t], tile_wires[y + span][x].track_n[t],
-                  delay);
+          add_pip(loc, src_s[t], tile_wires[y + span][x].track_n[t], delay);
         // East
         if (x + span < W && !tile_wires[y][x + span].track_w.empty())
-          add_pip(loc, tw.track_e[t], tile_wires[y][x + span].track_w[t],
-                  delay);
+          add_pip(loc, src_e[t], tile_wires[y][x + span].track_w[t], delay);
         // West
         if (x - span >= 0 && !tile_wires[y][x - span].track_e.empty())
-          add_pip(loc, tw.track_w[t], tile_wires[y][x - span].track_e[t],
-                  delay);
+          add_pip(loc, src_w[t], tile_wires[y][x - span].track_e[t], delay);
       }
     }
   }
