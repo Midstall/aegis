@@ -47,7 +47,7 @@ struct AegisImpl : ViaductAPI {
     WireId ff_d, ff_q;          // DFF wires
     WireId carry_in, carry_out;
     std::vector<WireId> track_n, track_e, track_s, track_w; // T tracks per dir
-    // Per-track output mux wires — one per track per direction
+    // Per-track output mux wires - one per track per direction
     std::vector<WireId> out_n, out_e, out_s, out_w;
     // IO wires (only for IO tiles)
     std::vector<WireId> pad;
@@ -266,7 +266,7 @@ private:
           tw.carry_out = ctx->addWire(h.xy_id(x, y, ctx->id("CARRY_OUT")),
                                       ctx->id("CARRY"), x, y);
 
-          // Per-track output mux wires — each track has its own independent mux
+          // Per-track output mux wires - each track has its own independent mux
           for (int t = 0; t < T; t++) {
             tw.out_n.push_back(
                 ctx->addWire(h.xy_id(x, y, ctx->idf("OUT_N%d", t)),
@@ -385,7 +385,7 @@ private:
   void add_logic_bels(int x, int y) {
     auto &tw = tile_wires[y][x];
 
-    // LUT4 BEL — pins match $lut cell ports: A[0]-A[3], Y
+    // LUT4 BEL - pins match $lut cell ports: A[0]-A[3], Y
     BelId lut = ctx->addBel(h.xy_id(x, y, ctx->id("SLICE0_LUT")), id_LUT4,
                             Loc(x, y, 0), false, false);
     for (int k = 0; k < K; k++)
@@ -396,7 +396,7 @@ private:
     // LUT output -> FF D pip
     add_pip(Loc(x, y, 0), tw.lut_out, tw.ff_d);
 
-    // DFF BEL — pins match $_DFF_P_ cell ports: C, D, Q
+    // DFF BEL - pins match $_DFF_P_ cell ports: C, D, Q
     BelId dff = ctx->addBel(h.xy_id(x, y, ctx->id("SLICE0_FF")), id_DFF,
                             Loc(x, y, 1), false, false);
     ctx->addBelInput(dff, ctx->id("C"), tw.clk);
@@ -567,7 +567,7 @@ private:
     auto &src_w = logic ? tw.out_w : tw.track_w;
 
     // IO ring tiles only get span-1 connections (no multi-span routing
-    // through the IO ring — the sim models IO tiles as simple pass-through)
+    // through the IO ring - the sim models IO tiles as simple pass-through)
     int max_span = logic ? 4 : 1;
     int spans[] = {1, 2, 4};
     for (int span : spans) {

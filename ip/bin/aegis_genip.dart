@@ -134,7 +134,12 @@ Future<void> main(List<String> arguments) async {
       dir.createSync(recursive: true);
     }
 
-    File('$outputDir/${fpga.name}.sv').writeAsStringSync(fpga.generateSynth());
+    // Tag fabric/tile modules with `(* keep_hierarchy *)` so flat
+    // synthesis flows (LibreLane, OpenLane) cannot constant-fold
+    // through the LUT config registers and dead-code-eliminate the
+    // entire fabric.
+    final svContent = KeepHierarchy.inject(fpga.generateSynth());
+    File('$outputDir/${fpga.name}.sv').writeAsStringSync(svContent);
 
     const encoder = JsonEncoder.withIndent('  ');
     File(
@@ -185,7 +190,6 @@ Future<void> main(List<String> arguments) async {
       '$outputDir/${fpga.name}-yosys.tcl',
     ).writeAsStringSync(yosysEmitter.generate());
     // Determine which macro modules actually exist in the generated SV
-    final svContent = File('$outputDir/${fpga.name}.sv').readAsStringSync();
     final presentModules = YosysTclEmitter.macroModules
         .where((mod) => svContent.contains('module $mod ('))
         .toList();

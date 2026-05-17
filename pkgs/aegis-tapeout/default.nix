@@ -19,7 +19,6 @@ lib.extendMkDerivation {
     "pdk"
     "cellLib"
     "clockPeriodNs"
-    "fabSlot"
     "dieWidthUm"
     "dieHeightUm"
     "coreUtilization"
@@ -30,8 +29,6 @@ lib.extendMkDerivation {
     "tilePlacementDensities"
     "topPlacementDensity"
     "topDetailedRouteIter"
-    "tileLayerAdjustments"
-    "topLayerAdjustments"
   ];
 
   extendDrvArgs =
@@ -41,7 +38,6 @@ lib.extendMkDerivation {
       pdk,
       cellLib ? pdk.cellLib,
       clockPeriodNs ? 20,
-      fabSlot ? null,
       dieWidthUm ? null,
       dieHeightUm ? null,
       coreUtilization ? 0.5,
@@ -52,8 +48,6 @@ lib.extendMkDerivation {
       tilePlacementDensities ? { },
       topPlacementDensity ? 0.1,
       topDetailedRouteIter ? 8,
-      tileLayerAdjustments ? pdk.tileLayerAdjustments or { },
-      topLayerAdjustments ? pdk.topLayerAdjustments or { },
       ...
     }@args:
 
@@ -69,54 +63,21 @@ lib.extendMkDerivation {
       pdkPath = "${pdk}/${pdk.pdkPath}";
       libsRef = "${pdkPath}/libs.ref/${cellLib}";
 
-      # Resolve die dimensions from fab slot or explicit values
-      fab = pdk.fab or { };
-      slotDims =
-        if fabSlot != null && fab ? slots && fab.slots ? ${fabSlot} then fab.slots.${fabSlot} else null;
-      sealRingWidth = if fab ? sealRing then fab.sealRing.width or 0 else 0;
-      effectiveDieWidthUm =
-        if dieWidthUm != null then
-          dieWidthUm
-        else if slotDims != null then
-          slotDims.w
-        else
-          null;
-      effectiveDieHeightUm =
-        if dieHeightUm != null then
-          dieHeightUm
-        else if slotDims != null then
-          slotDims.h
-        else
-          null;
-      # User area is die minus seal ring on each side
-      userWidthUm = if effectiveDieWidthUm != null then effectiveDieWidthUm - 2 * sealRingWidth else null;
-      userHeightUm =
-        if effectiveDieHeightUm != null then effectiveDieHeightUm - 2 * sealRingWidth else null;
-
-      # Generate KLayout LEF/DEF layer map from PDK layer definitions
-      lefGdsMapFile = builtins.toFile "lef-gds.map" (
-        lib.concatStringsSep "\n" (
-          lib.mapAttrsToList (name: val: "${name} ALL ${toString val.layer} ${toString val.datatype}") (
-            pdk.lefGdsLayers or { }
-          )
-        )
-      );
-
       # Default tile die sizes per PDK
       defaultTileDieSizes =
         {
           gf180mcu = {
             Tile = {
-              w = 165;
-              h = 102;
+              w = 155;
+              h = 95;
             };
             IOTile = {
               w = 105;
               h = 30;
             };
             ClockTile = {
-              w = 245;
-              h = 155;
+              w = 230;
+              h = 145;
             };
             BramTile = {
               w = 27;
@@ -131,8 +92,8 @@ lib.extendMkDerivation {
               h = 12;
             };
             SerDesTile = {
-              w = 950;
-              h = 160;
+              w = 853;
+              h = 132;
             };
             JtagTap = {
               w = 45;
@@ -242,9 +203,6 @@ lib.extendMkDerivation {
             ${lib.optionalString (builtins.hasAttr tileModule tilePlacementDensities) ''
               set TILE_PLACEMENT_DENSITY ${toString tilePlacementDensities.${tileModule}}
             ''}
-            ${lib.concatStringsSep "\n" (
-              lib.mapAttrsToList (layer: adj: "set LAYER_ADJ(${layer}) ${toString adj}") tileLayerAdjustments
-            )}
             source ${aegis-ip}/${deviceName}-openroad-${tileModule}.tcl
             EOF
             openroad -threads $NIX_BUILD_CORES -exit pnr.tcl 2>&1 | tee openroad.log
@@ -256,7 +214,6 @@ lib.extendMkDerivation {
               TECH_LEF="$TECH_LEF" \
               DEF_FILE="${deviceName}_${tileModule}_final.def" \
               OUT_GDS="${deviceName}_${tileModule}_final.gds" \
-              LAYER_MAP="${lefGdsMapFile}" \
               QT_QPA_PLATFORM=offscreen \
               klayout -b -r ${./scripts/def2gds.py} 2>&1 | tee klayout.log || true
             fi
@@ -381,12 +338,9 @@ lib.extendMkDerivation {
           set GRID_MARGIN ${toString gridMarginUm}
           set PLACEMENT_DENSITY ${toString topPlacementDensity}
           set DROUTE_END_ITER ${toString topDetailedRouteIter}
-          ${lib.optionalString (userWidthUm != null && userHeightUm != null) ''
-            set DIE_AREA "0 0 ${toString userWidthUm} ${toString userHeightUm}"
+          ${lib.optionalString (dieWidthUm != null && dieHeightUm != null) ''
+            set DIE_AREA "0 0 ${toString dieWidthUm} ${toString dieHeightUm}"
           ''}
-          ${lib.concatStringsSep "\n" (
-            lib.mapAttrsToList (layer: adj: "set LAYER_ADJ(${layer}) ${toString adj}") topLayerAdjustments
-          )}
           source ${aegis-ip}/${deviceName}-openroad.tcl
           OPENROAD_EOF
           openroad -threads $NIX_BUILD_CORES -exit pnr.tcl 2>&1 | tee openroad.log
@@ -411,7 +365,6 @@ lib.extendMkDerivation {
       "pdk"
       "cellLib"
       "clockPeriodNs"
-      "fabSlot"
       "dieWidthUm"
       "dieHeightUm"
       "coreUtilization"
@@ -439,14 +392,11 @@ lib.extendMkDerivation {
         echo "=== GDS generation ==="
 
         if [ -f "${topPnr}/${deviceName}_final.def" ]; then
-          # Collect tile macro GDS and LEF files into directories
-          mkdir -p macro_gds macro_lef
+          # Collect tile macro GDS files into one directory
+          mkdir -p macro_gds
           ${lib.concatMapStringsSep "\n" (mod: ''
             if [ -f "${tileMacros.${mod}}/${deviceName}_${mod}_final.gds" ]; then
               cp ${tileMacros.${mod}}/${deviceName}_${mod}_final.gds macro_gds/
-            fi
-            if [ -f "${tileMacros.${mod}}/${deviceName}_${mod}.lef" ]; then
-              cp ${tileMacros.${mod}}/${deviceName}_${mod}.lef macro_lef/
             fi
           '') (builtins.attrNames tileMacros)}
 
@@ -454,12 +404,10 @@ lib.extendMkDerivation {
 
           CELL_GDS_DIR="${libsRef}/gds" \
           MACRO_GDS_DIR="macro_gds" \
-          MACRO_LEF_DIR="macro_lef" \
           LEF_DIR="${libsRef}/lef" \
           TECH_LEF="$TECH_LEF" \
           DEF_FILE="${topPnr}/${deviceName}_final.def" \
           OUT_GDS="${deviceName}.gds" \
-          LAYER_MAP="${lefGdsMapFile}" \
           QT_QPA_PLATFORM=offscreen \
           klayout -b -r ${./scripts/def2gds.py} \
             2>&1 | tee klayout.log || true
@@ -474,59 +422,6 @@ lib.extendMkDerivation {
             QT_QPA_PLATFORM=offscreen \
             klayout -b -r ${./scripts/stamp_text.py} \
               2>&1 | tee -a klayout.log
-
-            echo "=== Fab finalize ==="
-
-            GDS_FILE="${deviceName}.gds" \
-            TOP_CELL="AegisFPGA" \
-            ${
-              lib.optionalString (effectiveDieWidthUm != null) ''DIE_W_UM="${toString effectiveDieWidthUm}"''
-            } \
-            ${
-              lib.optionalString (effectiveDieHeightUm != null) ''DIE_H_UM="${toString effectiveDieHeightUm}"''
-            } \
-            ${lib.optionalString (fab ? sealRing) ''SEAL_LAYER="${toString fab.sealRing.layer}"''} \
-            ${lib.optionalString (fab ? sealRing) ''SEAL_DATATYPE="${toString fab.sealRing.datatype}"''} \
-            ${lib.optionalString (fab ? sealRing) ''SEAL_WIDTH_UM="${toString fab.sealRing.width}"''} \
-            ${lib.optionalString (fab ? idCell) ''ID_CELL="${fab.idCell}"''} \
-            QT_QPA_PLATFORM=offscreen \
-            klayout -b -r ${./scripts/fab_finalize.py} \
-              2>&1 | tee -a klayout.log
-
-            echo "=== Density fill ==="
-
-            FILL_SCRIPT="${pdkPath}/pv/klayout/drc/filler_generation/fill_all.rb"
-            if [ -f "$FILL_SCRIPT" ]; then
-              cp "${deviceName}.gds" "${deviceName}_prefill.gds"
-              # Set Metal*_ignore_active to allow fill near active metal
-              # (matches wafer.space's LibreLane filler options).
-              QT_QPA_PLATFORM=offscreen klayout -b -zz \
-                -r "$FILL_SCRIPT" \
-                -rd input="${deviceName}_prefill.gds" \
-                -rd output="${deviceName}.gds" \
-                -rd Metal1_ignore_active=true \
-                -rd Metal2_ignore_active=true \
-                -rd Metal3_ignore_active=true \
-                -rd Metal4_ignore_active=true \
-                -rd Metal5_ignore_active=true \
-                2>&1 | tee -a klayout.log
-              rm "${deviceName}_prefill.gds"
-              echo "Density fill complete"
-
-              # Clean up orphan fill cells created by the filler
-              GDS_FILE="${deviceName}.gds" \
-              TOP_CELL="AegisFPGA" \
-              QT_QPA_PLATFORM=offscreen \
-              klayout -b -r ${./scripts/fab_finalize.py} \
-                2>&1 | tee -a klayout.log
-            else
-              echo "NOTE: Fill script not found, skipping density fill"
-            fi
-
-            # DRC repair is available as a separate step:
-            #   klayout -b -r scripts/drc_repair.py -rd input=luna_1.gds -rd output=luna_1_repaired.gds
-            # It flattens Metal1 and merges close shapes (1458->55 M1.2a violations).
-            # Not run in the build because flat Metal1 makes subsequent DRC checks very slow.
 
             echo "=== Render layout image ==="
 
@@ -603,6 +498,10 @@ lib.extendMkDerivation {
           tracks
           ;
         ip = aegis-ip;
+        # Top cell in the GDS. The legacy flow streams the AegisFPGA
+        # module directly (no chip wrapper). gds-verify uses this name
+        # for Magic / Netgen LVS to find the top of the netlist.
+        topCellName = "AegisFPGA";
         shell = mkShell {
           name = "aegis-tapeout-${aegis-ip.deviceName}-shell";
 

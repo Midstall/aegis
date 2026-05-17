@@ -168,6 +168,9 @@ lib.extendMkDerivation {
           enableJtag
           ;
         mkTapeout = callPackage ../aegis-tapeout { aegis-ip = finalAttrs.finalPackage; };
+        mkTapeoutLr = callPackage ../aegis-tapeout-lr {
+          aegis-ip = finalAttrs.finalPackage;
+        };
         shell = mkShell {
           name = "aegis-${deviceName}-shell";
           packages = [
