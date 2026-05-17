@@ -1,10 +1,20 @@
 {
+  nixConfig = {
+    extra-substituters = [
+      "https://nix-cache.fossi-foundation.org"
+    ];
+    extra-trusted-public-keys = [
+      "nix-cache.fossi-foundation.org:3+K59iFwXqKsL7BNu6Guy0v+uTlwsxYQxjspXzqLYQs="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs";
     flake-parts.url = "github:hercules-ci/flake-parts";
     flakever.url = "github:numinit/flakever";
     treefmt-nix.url = "github:numtide/treefmt-nix";
     crane.url = "github:ipetkov/crane";
+    librelane.url = "github:librelane/librelane/3.0.0";
   };
 
   outputs =
@@ -15,6 +25,7 @@
       flakever,
       treefmt-nix,
       crane,
+      librelane,
       ...
     }@inputs:
     let
@@ -50,12 +61,18 @@
         let
           inherit (pkgs) lib;
           craneLib = crane.mkLib pkgs;
+          devices = import ./devices.nix {
+            inherit (pkgs) aegis-ip-tools gf180mcu-pdk sky130-pdk;
+          };
         in
         {
           _module.args.pkgs = import inputs.nixpkgs {
             inherit system;
             overlays = [
               self.overlays.default
+              (final: _: {
+                librelane = inputs.librelane.packages.${system}.librelane or null;
+              })
             ];
           };
 
@@ -82,16 +99,19 @@
 
           packages =
             let
-              devices = import ./devices.nix {
-                inherit (pkgs) aegis-ip-tools gf180mcu-pdk sky130-pdk;
-              };
-
-              mkDevicePackages = name: cfg: {
-                "${name}" = cfg.ip;
-                "${name}-tapeout" = cfg.ip.mkTapeout cfg.tapeout;
-                "${name}-deb" = cfg.ip.deb;
-                "${name}-docker" = cfg.ip.docker;
-              };
+              mkDevicePackages =
+                name: cfg:
+                {
+                  "${name}" = cfg.ip;
+                  "${name}-deb" = cfg.ip.deb;
+                  "${name}-docker" = cfg.ip.docker;
+                }
+                // lib.optionalAttrs (cfg.tapeout.pdk ? ioLib) {
+                  "${name}-tapeout" = cfg.ip.mkTapeout cfg.tapeout;
+                }
+                // lib.optionalAttrs (cfg.tapeout.pdk ? librelane) {
+                  "${name}-tapeout-lr" = cfg.ip.mkTapeoutLr cfg.tapeout;
+                };
             in
             {
               default = pkgs.aegis-ip-tools;
@@ -103,18 +123,11 @@
 
           checks =
             let
-              devices = builtins.filter (
-                name:
-                let
-                  pkg = self.packages.${system}.${name};
-                in
-                pkg ? deviceName && !(pkg ? tileMacros)
-              ) (builtins.attrNames self.packages.${system});
               mkDeviceChecks =
                 name:
                 let
+                  cfg = devices.${name};
                   ip = self.packages.${system}.${name};
-                  tapeout = self.packages.${system}."${name}-tapeout";
                 in
                 {
                   "${name}-blinky" = pkgs.callPackage ./examples/blinky {
@@ -146,33 +159,35 @@
                   "${name}-formal-ip" = pkgs.callPackage ./tests/formal-ip {
                     aegis-ip = ip;
                   };
+                }
+                // lib.optionalAttrs (cfg.tapeout.pdk ? ioLib) {
                   "${name}-gds-verify" = pkgs.callPackage ./tests/gds-verify {
-                    aegis-tapeout = tapeout;
+                    aegis-tapeout = self.packages.${system}."${name}-tapeout";
                   };
                 };
             in
-            lib.foldl' (acc: name: acc // mkDeviceChecks name) { } devices;
+            lib.foldl' (acc: name: acc // mkDeviceChecks name) { } (builtins.attrNames devices);
 
           devShells =
             let
-              devices = builtins.filter (
+              mkDeviceShells =
                 name:
                 let
-                  pkg = self.packages.${system}.${name};
+                  cfg = devices.${name};
                 in
-                pkg ? deviceName && !(pkg ? tileMacros)
-              ) (builtins.attrNames self.packages.${system});
-              mkDeviceShells = name: {
-                "${name}" = self.packages.${system}.${name}.shell;
-                "${name}-tapeout" = self.packages.${system}."${name}-tapeout".shell;
-                "${name}-blinky" = self.checks.${system}."${name}-blinky".shell;
-              };
+                {
+                  "${name}" = self.packages.${system}.${name}.shell;
+                  "${name}-blinky" = self.checks.${system}."${name}-blinky".shell;
+                }
+                // lib.optionalAttrs (cfg.tapeout.pdk ? ioLib) {
+                  "${name}-tapeout" = self.packages.${system}."${name}-tapeout".shell;
+                };
             in
             {
               default = pkgs.aegis-ip-tools.shell;
               ip-tools = pkgs.aegis-ip-tools.shell;
             }
-            // lib.foldl' (acc: name: acc // mkDeviceShells name) { } devices;
+            // lib.foldl' (acc: name: acc // mkDeviceShells name) { } (builtins.attrNames devices);
         };
     };
 }

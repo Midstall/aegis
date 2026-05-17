@@ -13,7 +13,7 @@
 }:
 
 let
-  inherit (aegis-tapeout) deviceName pdk;
+  inherit (aegis-tapeout) deviceName pdk topCellName;
   inherit (pdk) pdkName pdkPath cellLib;
   fullPdkPath = "${pdk}/${pdkPath}";
   spicePath = "${fullPdkPath}/libs.ref/${cellLib}/spice";
@@ -177,24 +177,48 @@ stdenvNoCC.mkDerivation {
     DRC_SCRIPT="${pvPath}/klayout/drc/run_drc.py"
 
     if [ -f "$DRC_SCRIPT" ]; then
+      # Run with both --antenna and FEOL enabled. The antenna rule deck
+      # uses connect() against poly2/n_diode/p_diode/nwell to extract nets
+      # and compute gate-area ratios, so it cannot run with --no_feol.
       QT_QPA_PLATFORM=offscreen python3 "$DRC_SCRIPT" \
         --path="$GDS" \
-        --topcell=AegisFPGA \
+        --topcell=${topCellName} \
         --variant=${drcVariant} \
         --run_dir=drc_output \
-        --no_feol \
+        --antenna \
         --run_mode=deep \
         --thr=$NIX_BUILD_CORES \
         --mp=$NIX_BUILD_CORES \
         ${lib.concatMapStringsSep " " (t: "--table=${t}") drcTables} \
         2>&1 | tee -a drc.log || true
 
-      # Report but don't fail
-      VIOLATION_FILES=$(find drc_output -name "*.lyrdb" 2>/dev/null)
+      # Report but don't fail on metal/via DRC (informational)
+      VIOLATION_FILES=$(find drc_output -name "*.lyrdb" -not -name "*antenna*" 2>/dev/null)
       if [ -n "$VIOLATION_FILES" ]; then
         VIOLATIONS=$(grep -c "<value>" $VIOLATION_FILES 2>/dev/null || echo "0")
         echo "Detailed DRC violations (informational): $VIOLATIONS"
       fi
+
+      # Antennas are a tape-out blocker: any unrepaired antenna violation
+      # can cause real-silicon gate damage during fabrication.
+      ANTENNA_LYRDB=$(find drc_output -name "*antenna*.lyrdb" 2>/dev/null)
+      if [ -n "$ANTENNA_LYRDB" ]; then
+        ANTENNA_COUNT=$(grep -c "<value>" $ANTENNA_LYRDB 2>/dev/null || echo "0")
+        echo "Antenna violations: $ANTENNA_COUNT"
+        if [ "$ANTENNA_COUNT" != "0" ]; then
+          echo "FAIL: $ANTENNA_COUNT antenna violations - gate damage risk"
+          exit 1
+        fi
+      else
+        echo "WARN: No antenna report produced - check failed"
+      fi
+    fi
+
+    # Surface OpenROAD antenna report from the tapeout build for cross-
+    # checking with KLayout's antenna verification above.
+    if [ -f "${aegis-tapeout}/antenna.rpt" ]; then
+      echo "--- OpenROAD top-level antenna report ---"
+      tail -40 "${aegis-tapeout}/antenna.rpt" || true
     fi
 
     # ---- Step 4: Convert Verilog netlists to SPICE ----
@@ -231,7 +255,7 @@ stdenvNoCC.mkDerivation {
       yosys -p "
         read_liberty -lib $CELL_LIB;
         read_verilog $NETLIST;
-        hierarchy -top AegisFPGA;
+        hierarchy -top ${topCellName};
         write_spice -big_endian raw_netlist.spice;
       " 2>&1 | tee v2spice.log
 
@@ -260,7 +284,7 @@ stdenvNoCC.mkDerivation {
           done
 
           # Top-level subcircuit
-          sed -n '/^\.subckt AegisFPGA/,/^\.ends/p' raw_netlist.spice
+          sed -n '/^\.subckt ${topCellName}/,/^\.ends/p' raw_netlist.spice
         } > netlist.spice
 
         SUBCKT_COUNT=$(grep -c '^\.subckt' netlist.spice || true)

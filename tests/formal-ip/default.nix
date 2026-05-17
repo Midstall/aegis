@@ -83,8 +83,7 @@ stdenvNoCC.mkDerivation {
     # ---- CLB Formal Proof ----
     echo "--- CLB: combinational + carry mode correctness ---"
 
-    # Extract CLB with dependencies flattened
-    yosys -p "read -sv $DEVICE_SV; hierarchy -top Clb; proc; flatten; write_rtlil clb_gate.il" 2>&1 | tail -3
+    yosys -p "read -sv $DEVICE_SV; hierarchy -top Clb; setattr -mod -unset keep_hierarchy; proc; flatten; write_rtlil clb_gate.il" 2>&1 | tail -3
 
     # Write reference model
     cat > clb_ref.v << 'VEOF'

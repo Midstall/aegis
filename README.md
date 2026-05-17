@@ -23,17 +23,17 @@ foundry via open PDKs and shuttle services like
 ### Aegis Luna 1
 
 A compact Aegis device targeting GF180MCU via [wafer.space](https://wafer.space)
-(1x1 Full slot, 3.93 x 5.12mm die).
 
-| Resource          | Count         |
-|-------------------|---------------|
-| LUT4              | ~760          |
-| BRAM (128x8)      | 40 tiles      |
-| DSP18 (18x18 MAC) | 40 tiles      |
-| I/O pads          | 118           |
-| SerDes            | 1             |
-| Clock tiles       | 1 (4 outputs) |
-| Routing tracks    | 1 per edge    |
+| Resource          | Count                     |
+|-------------------|---------------------------|
+| Fabric            | 23 x 23 tiles (529 total) |
+| LUT4 (CLB)        | 437                       |
+| BRAM (128x8)      | 46 tiles                  |
+| DSP18 (18x18 MAC) | 46 tiles                  |
+| I/O tiles         | 92 (25 bonded bidir)      |
+| SerDes            | 0                         |
+| Clock tiles       | 1 (4 outputs)             |
+| Routing tracks    | 1 per edge                |
 
 ```bash
 nix build .#luna-1          # Generate IP (SV, JSON, chipdb, techmap)
@@ -84,12 +84,12 @@ The tapeout pipeline synthesizes the FPGA fabric itself to PDK standard cells:
 ```bash
 nix build .#terra-1-tapeout
 ls result/
-# terra_1_synth.v      — gate-level netlist (Yosys)
-# terra_1_final.def    — placed & routed layout (OpenROAD)
-# terra_1.gds          — GDS2 for fab submission
-# terra_1_layout.png   — layout render
-# timing.rpt           — timing analysis
-# power.rpt            — power report
+# terra_1_synth.v      - gate-level netlist (Yosys)
+# terra_1_final.def    - placed & routed layout (OpenROAD)
+# terra_1.gds          - GDS2 for fab submission
+# terra_1_layout.png   - layout render
+# timing.rpt           - timing analysis
+# power.rpt            - power report
 ```
 
 Supports GF180MCU (wafer.space) and Sky130 PDKs.
@@ -175,20 +175,20 @@ clock tiles -> IO tiles -> SerDes tiles -> fabric tiles (row-major).
 
 ## Related Projects
 
-- **[OpenFPGA](https://github.com/lnis-uofu/OpenFPGA)** — An open-source FPGA
+- **[OpenFPGA](https://github.com/lnis-uofu/OpenFPGA)** - An open-source FPGA
   IP generator from the University of Utah. Given an XML architecture
   description, it generates synthesizable Verilog for a complete FPGA fabric
   along with bitstream tooling and self-testing infrastructure. Silicon-proven
   through DARPA's POSH program.
 
-- **[FABulous](https://github.com/FPGA-Research-Manchester/FABulous)** — An
+- **[FABulous](https://github.com/FPGA-Research-Manchester/FABulous)** - An
   open-source embedded FPGA (eFPGA) framework from the University of Manchester.
   Generates custom FPGA fabric from CSV-based configuration and integrates Yosys
   and nextpnr. Silicon-proven with 12+ tapeouts across nodes from TSMC 180nm
   down to 28nm CMOS.
 
 - **[Cologne Chip GateMate](https://colognechip.com/programmable-logic/gatemate/)**
-  — A commercial FPGA on GlobalFoundries 28nm with a fully open-source,
+  - A commercial FPGA on GlobalFoundries 28nm with a fully open-source,
   license-free toolchain built on Yosys, nextpnr, and openFPGALoader. The
   silicon itself is proprietary, but it is notable as one of the few commercial
   FPGAs to embrace open-source EDA tools end-to-end.
