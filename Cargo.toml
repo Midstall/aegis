@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/aegis-ip", "crates/aegis-pack", "crates/aegis-sim"]
+members = ["crates/aegis-ip", "crates/aegis-pack", "crates/aegis-sim", "crates/athena"]
 resolver = "2"
 
 [workspace.package]
@@ -11,3 +11,6 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 clap = { version = "4", features = ["derive"] }
 typify = "0.2"
+iced = "0.14"
+dark-light = "2.0"
+rust-i18n = "3"

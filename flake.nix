@@ -50,6 +50,7 @@
       systems = [
         "aarch64-linux"
         "x86_64-linux"
+        "aarch64-darwin"
       ];
 
       perSystem =
@@ -92,6 +93,11 @@
             aegis-ip-tools = pkgs.callPackage ./pkgs/aegis-ip-tools { };
             aegis-pack = pkgs.callPackage ./pkgs/aegis-pack { inherit craneLib; };
             aegis-sim = pkgs.callPackage ./pkgs/aegis-sim { inherit craneLib; };
+            athena = pkgs.callPackage ./pkgs/athena { inherit craneLib; };
+            athena-cosmic = pkgs.callPackage ./pkgs/athena {
+              inherit craneLib;
+              enableCosmic = true;
+            };
             nextpnr-aegis = pkgs.callPackage ./pkgs/nextpnr-aegis { };
             gf180mcu-pdk = pkgs.callPackage ./pkgs/gf180mcu-pdk { };
             sky130-pdk = pkgs.callPackage ./pkgs/sky130-pdk { };
@@ -116,6 +122,13 @@
             {
               default = pkgs.aegis-ip-tools;
               ip-tools = pkgs.aegis-ip-tools;
+              athena = pkgs.athena.override {
+                dataPacks = [ self.packages.${system}.terra-1 ];
+              };
+              athena-cosmic = pkgs.athena-cosmic.override {
+                dataPacks = [ self.packages.${system}.terra-1 ];
+              };
+              athena-deb = self.packages.${system}.athena.passthru.deb;
             }
             // lib.foldl' (acc: name: acc // mkDevicePackages name devices.${name}) { } (
               builtins.attrNames devices
@@ -186,6 +199,7 @@
             {
               default = pkgs.aegis-ip-tools.shell;
               ip-tools = pkgs.aegis-ip-tools.shell;
+              athena = pkgs.athena.shell;
             }
             // lib.foldl' (acc: name: acc // mkDeviceShells name) { } (builtins.attrNames devices);
         };

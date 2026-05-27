@@ -1,0 +1,106 @@
+app-id: com.midstall.athena
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+
+command: athena
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --filesystem=home
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/athena/cargo
+    RUSTUP_HOME: /usr/lib/sdk/rust-stable
+
+modules:
+  # TCL (needed by yosys build)
+  - name: tcl
+    buildsystem: autotools
+    subdir: unix
+    no-debuginfo: true
+    config-opts:
+      - --prefix=/app
+    post-install:
+      - chmod u+w /app/lib/libtcl8.6.so
+      - ln -s tclsh8.6 /app/bin/tclsh
+    sources:
+      - type: archive
+        url: https://prdownloads.sourceforge.net/tcl/tcl8.6.16-src.tar.gz
+        sha256: 91cb8fa61771c63c262efb553059b7c7ad6757afa5857af6265e4b0bdc2a14a5
+
+  # Yosys synthesis tool
+  - name: yosys
+    buildsystem: simple
+    build-commands:
+      - make config-gcc PREFIX=/app
+      - make -j$FLATPAK_BUILDER_N_JOBS
+      - make install
+    sources:
+      - type: archive
+        url: https://github.com/YosysHQ/yosys/releases/download/v0.64/yosys.tar.gz
+        sha256: 1faf20509c21039b6e88136677cc2fcb296e2023dda8d89bc8215367c37f9ca7
+
+  # Boost headers (needed by nextpnr)
+  - name: boost
+    buildsystem: simple
+    build-commands:
+      - ./bootstrap.sh --prefix=/app --with-libraries=filesystem,program_options,thread,iostreams
+      - ./b2 install --prefix=/app -j$FLATPAK_BUILDER_N_JOBS
+    sources:
+      - type: archive
+        url: https://github.com/boostorg/boost/releases/download/boost-1.87.0/boost-1.87.0-b2-nodocs.tar.gz
+        sha256: d6c69e4459eb5d6ec208250291221e7ff4a2affde9af6e49c9303b89c687461f
+
+  # Eigen3 (needed by nextpnr)
+  - name: eigen3
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_INSTALL_PREFIX=/app
+    sources:
+      - type: archive
+        url: https://gitlab.com/libeigen/eigen/-/archive/3.4.0/eigen-3.4.0.tar.gz
+        sha256: 8586084f71f9bde545ee7fa6d00288b264a2b7ac3607b974e54d13e7162c1c72
+
+  # nextpnr with Aegis viaduct plugin
+  - name: nextpnr-aegis
+    buildsystem: cmake-ninja
+    builddir: true
+    config-opts:
+      - -DCMAKE_INSTALL_PREFIX=/app
+      - -DARCH=generic
+    build-commands:
+      # Inject Aegis viaduct sources before build
+      - mkdir -p ../generic/viaduct/aegis
+      - cp ../aegis-viaduct/aegis.cc ../generic/viaduct/aegis/aegis.cc
+      - cp ../aegis-viaduct/aegis_test.cc ../generic/viaduct/aegis/aegis_test.cc
+      - sed -i '/viaduct\/example\/example.cc/a\    viaduct/aegis/aegis.cc' ../generic/CMakeLists.txt
+      - cmake --build . -j$FLATPAK_BUILDER_N_JOBS
+      - cmake --install .
+    sources:
+      - type: archive
+        url: https://github.com/YosysHQ/nextpnr/archive/refs/tags/nextpnr-0.9.tar.gz
+        sha256: 8cebc65049ff91c411d963ea2304b1a3dd42036f79de2eb3e9834c842f934495
+      - type: dir
+        path: ../../../nextpnr-aegis
+        dest: aegis-viaduct
+
+  # Athena IDE
+  - name: athena
+    buildsystem: simple
+    build-commands:
+      - cargo build --release --package athena
+      - install -Dm755 target/release/athena /app/bin/athena
+      - install -Dm644 pkgs/athena/flatpak/com.midstall.athena.desktop /app/share/applications/com.midstall.athena.desktop
+      - install -Dm644 pkgs/athena/flatpak/com.midstall.athena.metainfo.xml /app/share/metainfo/com.midstall.athena.metainfo.xml
+      - install -Dm644 pkgs/athena/flatpak/com.midstall.athena.mime.xml /app/share/mime/packages/com.midstall.athena.mime.xml
+    sources:
+      - type: dir
+        path: ../../..
