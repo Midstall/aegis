@@ -2,6 +2,8 @@ use aegis_ip::tile_bits;
 use aegis_ip::tile_bits::TileConfig;
 use aegis_ip::*;
 
+pub mod jtag;
+
 /// Per-tile simulation state with per-track outputs.
 #[derive(Clone)]
 pub(crate) struct TileState {

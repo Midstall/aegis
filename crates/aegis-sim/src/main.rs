@@ -1,22 +1,25 @@
 use std::fs;
 use std::path::PathBuf;
+use std::process::ExitCode;
 
 use clap::Parser;
 
 /// Fast cycle-accurate simulator for Aegis FPGA.
 ///
-/// Reads a device descriptor JSON and a bitstream binary, then
-/// simulates the configured fabric cycle-by-cycle.
+/// Default mode reads a device descriptor JSON and a bitstream binary, then
+/// simulates the configured fabric cycle-by-cycle. With `--rbb-port`, runs
+/// as a Spike-compatible remote_bitbang JTAG server modelling the Aegis TAP
+/// (used as fake silicon for heimdall's silicon-aegis NixOS test).
 #[derive(Parser)]
 #[command(name = "aegis-sim")]
 struct Args {
-    /// Path to the device descriptor JSON
-    #[arg(short, long)]
-    descriptor: PathBuf,
+    /// Path to the device descriptor JSON. Required in simulation mode.
+    #[arg(short, long, required_unless_present = "rbb_port")]
+    descriptor: Option<PathBuf>,
 
-    /// Path to the bitstream binary
-    #[arg(short, long)]
-    bitstream: PathBuf,
+    /// Path to the bitstream binary. Required in simulation mode.
+    #[arg(short, long, required_unless_present = "rbb_port")]
+    bitstream: Option<PathBuf>,
 
     /// Number of clock cycles to simulate
     #[arg(short, long, default_value = "1000")]
@@ -46,18 +49,76 @@ struct Args {
     /// during cycles 0 through 9. Multiple allowed.
     #[arg(long, value_delimiter = ',')]
     set_pin: Vec<String>,
+
+    /// Run as a Spike-compatible remote_bitbang JTAG server on this port
+    /// instead of simulating cycles. Cycle-simulation flags are ignored.
+    #[arg(long)]
+    rbb_port: Option<u16>,
+
+    /// Bind address for `--rbb-port`.
+    #[arg(long, default_value = "127.0.0.1")]
+    rbb_host: String,
+
+    /// 32-bit IDCODE the rbb TAP reports during IDCODE DR shift.
+    #[arg(long, default_value = "0x00000001", value_parser = parse_u32_hex)]
+    rbb_idcode: u32,
+
+    /// File to write the bitstream received via CONFIG on Update-DR.
+    /// Bytes are LSB-first per the JTAG shift order.
+    #[arg(long)]
+    rbb_bitstream_out: Option<PathBuf>,
+
+    /// Exit after the first rbb client disconnects.
+    #[arg(long, default_value_t = false)]
+    rbb_once: bool,
 }
 
-fn main() {
+fn parse_u32_hex(s: &str) -> Result<u32, String> {
+    let s = s
+        .strip_prefix("0x")
+        .or_else(|| s.strip_prefix("0X"))
+        .unwrap_or(s);
+    u32::from_str_radix(s, 16).map_err(|e| format!("expected hex u32: {e}"))
+}
+
+fn run_rbb(args: &Args) -> ExitCode {
+    let cfg = aegis_sim::jtag::RbbConfig {
+        host: args.rbb_host.clone(),
+        port: args.rbb_port.expect("guarded by clap"),
+        idcode: args.rbb_idcode,
+        bitstream_out: args.rbb_bitstream_out.clone(),
+        once: args.rbb_once,
+    };
+    if let Err(e) = aegis_sim::jtag::serve(&cfg) {
+        eprintln!("aegis-sim: rbb server error: {e}");
+        return ExitCode::FAILURE;
+    }
+    ExitCode::SUCCESS
+}
+
+fn main() -> ExitCode {
     let args = Args::parse();
 
-    let desc_json = fs::read_to_string(&args.descriptor)
-        .unwrap_or_else(|e| panic!("Failed to read descriptor: {e}"));
+    if args.rbb_port.is_some() {
+        return run_rbb(&args);
+    }
+
+    let descriptor = args
+        .descriptor
+        .as_ref()
+        .expect("required by clap in sim mode");
+    let bitstream_path = args
+        .bitstream
+        .as_ref()
+        .expect("required by clap in sim mode");
+
+    let desc_json =
+        fs::read_to_string(descriptor).unwrap_or_else(|e| panic!("Failed to read descriptor: {e}"));
     let desc: aegis_ip::AegisFpgaDeviceDescriptor = serde_json::from_str(&desc_json)
         .unwrap_or_else(|e| panic!("Failed to parse descriptor: {e}"));
 
     let bitstream =
-        fs::read(&args.bitstream).unwrap_or_else(|e| panic!("Failed to read bitstream: {e}"));
+        fs::read(bitstream_path).unwrap_or_else(|e| panic!("Failed to read bitstream: {e}"));
 
     eprintln!(
         "Simulating {} ({}x{}) for {} cycles",
@@ -204,4 +265,5 @@ fn main() {
     for &pad in &all_monitors {
         eprintln!("  IO pad {}: {}", pad, sim.get_io(pad) as u8);
     }
+    ExitCode::SUCCESS
 }
