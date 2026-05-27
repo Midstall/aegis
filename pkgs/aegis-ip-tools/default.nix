@@ -16,6 +16,8 @@ let
       yq
     ];
   };
+
+  schemaFile = ../../crates/aegis-ip/descriptor.schema.json;
 in
 buildDartApplication (finalAttrs: {
   pname = "aegis-ip-tools";
@@ -40,6 +42,11 @@ buildDartApplication (finalAttrs: {
     "bin/aegis-sim" = "bin/aegis_sim.dart";
   };
 
+  postUnpack = ''
+    rm -f "$sourceRoot/data/descriptor.schema.json"
+    install -Dm0644 ${schemaFile} "$sourceRoot/data/descriptor.schema.json"
+  '';
+
   doCheck = true;
 
   checkPhase = ''
@@ -49,8 +56,7 @@ buildDartApplication (finalAttrs: {
   '';
 
   postInstall = ''
-    mkdir -p $out/share/aegis-ip
-    cp data/descriptor.schema.json $out/share/aegis-ip/
+    install -Dm0644 ${schemaFile} $out/share/aegis-ip/descriptor.schema.json
   '';
 
   passthru = {
