@@ -1,0 +1,432 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aegis-fpga.dev/schemas/descriptor.json",
+  "title": "Aegis FPGA Device Descriptor",
+  "description": "Describes the architecture, config chain layout, and tile grid of a generated Aegis FPGA device. Used by PNR and bitstream generation tools.",
+  "type": "object",
+  "required": [
+    "device",
+    "fabric",
+    "io",
+    "serdes",
+    "clock",
+    "config",
+    "tiles"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "device": {
+      "type": "string",
+      "description": "Device name, matches the top-level SystemVerilog module name."
+    },
+    "fabric": {
+      "$ref": "#/$defs/fabric"
+    },
+    "io": {
+      "$ref": "#/$defs/io"
+    },
+    "serdes": {
+      "$ref": "#/$defs/serdes"
+    },
+    "clock": {
+      "$ref": "#/$defs/clock"
+    },
+    "config": {
+      "$ref": "#/$defs/config"
+    },
+    "tiles": {
+      "type": "array",
+      "description": "Flat list of all fabric tiles in config-chain order (row-major: y outer, x inner).",
+      "items": {
+        "$ref": "#/$defs/tileEntry"
+      }
+    }
+  },
+  "$defs": {
+    "edge": {
+      "type": "string",
+      "enum": [
+        "north",
+        "east",
+        "south",
+        "west"
+      ],
+      "description": "Cardinal edge of the fabric."
+    },
+    "fabric": {
+      "type": "object",
+      "required": [
+        "width",
+        "height",
+        "tracks",
+        "tile_config_width",
+        "bram",
+        "dsp",
+        "carry_chain"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of tile columns."
+        },
+        "height": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of tile rows."
+        },
+        "tracks": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Routing track width per edge per tile."
+        },
+        "tile_config_width": {
+          "type": "integer",
+          "description": "Config bits per LUT tile."
+        },
+        "bram": {
+          "$ref": "#/$defs/bram"
+        },
+        "dsp": {
+          "$ref": "#/$defs/dsp"
+        },
+        "carry_chain": {
+          "$ref": "#/$defs/carryChain"
+        }
+      }
+    },
+    "bram": {
+      "type": "object",
+      "required": [
+        "column_interval",
+        "columns",
+        "tile_config_width"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "column_interval": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "A BRAM column is placed every N LUT columns. 0 means no BRAM."
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Sorted list of column indices that are BRAM."
+        },
+        "data_width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "BRAM data port width in bits. Null if no BRAM."
+        },
+        "addr_width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "BRAM address width in bits. Null if no BRAM."
+        },
+        "depth": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "BRAM depth in entries (2^addr_width). Null if no BRAM."
+        },
+        "tile_config_width": {
+          "type": "integer",
+          "description": "Config bits per BRAM tile."
+        }
+      }
+    },
+    "dsp": {
+      "type": "object",
+      "required": [
+        "column_interval",
+        "columns",
+        "tile_config_width"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "column_interval": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "A DSP column is placed every N LUT columns. 0 means no DSP."
+        },
+        "columns": {
+          "type": "array",
+          "items": {
+            "type": "integer"
+          },
+          "description": "Sorted list of column indices that are DSP."
+        },
+        "a_width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "DSP operand A width in bits. Null if no DSP."
+        },
+        "b_width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "DSP operand B width in bits. Null if no DSP."
+        },
+        "result_width": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "description": "DSP result width in bits. Null if no DSP."
+        },
+        "tile_config_width": {
+          "type": "integer",
+          "description": "Config bits per DSP tile."
+        }
+      }
+    },
+    "carryChain": {
+      "type": "object",
+      "required": [
+        "direction",
+        "per_column"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "direction": {
+          "type": "string",
+          "enum": [
+            "south_to_north"
+          ],
+          "description": "Carry propagation direction within a column."
+        },
+        "per_column": {
+          "type": "boolean",
+          "description": "Whether each column has an independent carry chain."
+        }
+      }
+    },
+    "io": {
+      "type": "object",
+      "required": [
+        "total_pads",
+        "tile_config_width",
+        "pads"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "total_pads": {
+          "type": "integer",
+          "description": "Total number of I/O pads (2*width + 2*height)."
+        },
+        "tile_config_width": {
+          "type": "integer",
+          "description": "Config bits per IO tile."
+        },
+        "pads": {
+          "type": "array",
+          "description": "IO pads in config-chain order.",
+          "items": {
+            "$ref": "#/$defs/padEntry"
+          }
+        }
+      }
+    },
+    "padEntry": {
+      "type": "object",
+      "required": [
+        "index",
+        "edge",
+        "position",
+        "config_width"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "index": {
+          "type": "integer",
+          "description": "Pad index in the padIn/padOut bus and config chain."
+        },
+        "edge": {
+          "$ref": "#/$defs/edge"
+        },
+        "position": {
+          "type": "integer",
+          "description": "Position along the edge (0-indexed, left-to-right or top-to-bottom)."
+        },
+        "config_width": {
+          "type": "integer",
+          "description": "Config bits for this pad's IO tile."
+        }
+      }
+    },
+    "serdes": {
+      "type": "object",
+      "required": [
+        "count",
+        "tile_config_width",
+        "edge_assignment"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of SerDes transceiver tiles."
+        },
+        "tile_config_width": {
+          "type": "integer",
+          "description": "Config bits per SerDes tile."
+        },
+        "edge_assignment": {
+          "type": "array",
+          "description": "Which fabric edge each SerDes tile is assigned to.",
+          "items": {
+            "type": "object",
+            "required": [
+              "index",
+              "edge"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "index": {
+                "type": "integer",
+                "description": "SerDes tile index in serialIn/serialOut bus."
+              },
+              "edge": {
+                "$ref": "#/$defs/edge"
+              }
+            }
+          }
+        }
+      }
+    },
+    "clock": {
+      "type": "object",
+      "required": [
+        "tile_count",
+        "tile_config_width",
+        "outputs_per_tile",
+        "total_outputs"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "tile_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of clock management tiles."
+        },
+        "tile_config_width": {
+          "type": "integer",
+          "description": "Config bits per clock tile."
+        },
+        "outputs_per_tile": {
+          "type": "integer",
+          "description": "Number of derived clock outputs per tile."
+        },
+        "total_outputs": {
+          "type": "integer",
+          "description": "Total clock outputs across all tiles."
+        }
+      }
+    },
+    "config": {
+      "type": "object",
+      "required": [
+        "total_bits",
+        "chain_order"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "total_bits": {
+          "type": "integer",
+          "description": "Total bitstream length in bits."
+        },
+        "chain_order": {
+          "type": "array",
+          "description": "Sections of the config chain in serial order. The bitstream is shifted in this order.",
+          "items": {
+            "$ref": "#/$defs/chainSection"
+          }
+        }
+      }
+    },
+    "chainSection": {
+      "type": "object",
+      "required": [
+        "section",
+        "count",
+        "total_bits"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "section": {
+          "type": "string",
+          "enum": [
+            "clock_tiles",
+            "io_tiles",
+            "serdes_tiles",
+            "fabric_tiles"
+          ],
+          "description": "Which tile type this section covers."
+        },
+        "count": {
+          "type": "integer",
+          "description": "Number of tiles in this section."
+        },
+        "bits_per_tile": {
+          "type": "integer",
+          "description": "Config bits per tile (omitted for fabric_tiles when mixed LUT/BRAM)."
+        },
+        "total_bits": {
+          "type": "integer",
+          "description": "Total bits in this section."
+        }
+      }
+    },
+    "tileEntry": {
+      "type": "object",
+      "required": [
+        "x",
+        "y",
+        "type",
+        "config_width",
+        "config_offset"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "x": {
+          "type": "integer",
+          "description": "Column index (0-indexed from west)."
+        },
+        "y": {
+          "type": "integer",
+          "description": "Row index (0-indexed from north)."
+        },
+        "type": {
+          "type": "string",
+          "enum": [
+            "lut",
+            "bram",
+            "dsp"
+          ],
+          "description": "Tile type."
+        },
+        "config_width": {
+          "type": "integer",
+          "description": "Number of config bits for this tile."
+        },
+        "config_offset": {
+          "type": "integer",
+          "description": "Bit offset within the fabric_tiles section of the bitstream."
+        }
+      }
+    }
+  }
+}

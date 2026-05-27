@@ -1,7 +1,7 @@
 /// Device descriptor types generated from the JSON Schema.
 pub mod desc {
     use typify::import_types;
-    import_types!(schema = "../../ip/data/descriptor.schema.json");
+    import_types!(schema = "descriptor.schema.json");
 }
 
 pub use desc::*;

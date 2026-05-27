@@ -10,7 +10,6 @@ let
       ../../Cargo.toml
       ../../Cargo.lock
       ../../crates
-      ../../ip/data/descriptor.schema.json
     ];
   };
 
